@@ -20,6 +20,7 @@ Robot mobile holonome pour un projet étudiant : chaque groupe construit un robo
 | Vitesse | registre 33 des moteurs, soit 58 824 bauds ; on ouvre le port à 57 600 |
 | Identifiants | 1 arrière droite, 2 arrière gauche, 4 avant gauche, 8 avant droite |
 | Mode | roue (rotation continue) |
+| Sens | une vitesse positive fait avancer les roues de gauche (4 et 2) et reculer celles de droite (8 et 1) : vérifié au sol |
 
 Pour retrouver les moteurs, sans rien faire bouger : `python3 tools/dxl_scan.py`.
 
@@ -54,14 +55,30 @@ Le pilote suit le protocole officiel du X4 et n'occupe que 4 % d'un cœur de la 
 
 Documentation complète, avec exemples et pièges courants : [`docs/lidar.md`](docs/lidar.md).
 
+### Moteurs : `holorobot.motors`
+
+```python
+from holorobot.motors import Motors
+
+with Motors() as motors:               # ouvre le bus, trouve les moteurs, les met en mode roue
+    print(motors.ids)                  # [1, 2, 4, 8] sur MobileRobot-1
+    motors.run({4: 90}, duration=2)    # le moteur 4 tourne à 90 °/s pendant 2 s, puis s'arrête
+```
+
+- Les vitesses sont en °/s, limitées à 720 °/s par défaut. `set_speeds()` envoie une consigne, `run()` la maintient pendant une durée, `stop()` freine, `release()` libère les roues.
+- **Chien de garde** : sans nouvelle consigne pendant 0,5 s, toutes les roues s'arrêtent. Un carnet planté ou un navigateur fermé n'emporte donc pas le robot.
+- **Un seul programme à la fois** : le bus est verrouillé, et un second programme (un autre carnet, par exemple) reçoit un message clair au lieu de brouiller les échanges. pypot, lui, se contente d'un avertissement.
+
+Documentation complète, avec la cinématique des roues mecanum et holonomes : [`docs/moteurs.md`](docs/moteurs.md). Les schémas de `docs/img/` sont produits par `docs/img/schemas.py`.
+
 ### Tests
 
-`python3 tests/test_lidar.py`, ou `python3 -m pytest tests` : ils rejouent 8 s d'octets bruts enregistrés sur MobileRobot-1.
+`python3 tests/test_lidar.py`, `python3 tests/test_motors.py`, ou `python3 -m pytest tests`. Les premiers rejouent 8 s d'octets bruts enregistrés sur MobileRobot-1 ; les seconds vérifient la logique des moteurs (mode roue, limites, chien de garde, fermeture) avec un faux bus, sans robot.
 
 ## Contenu du dépôt
 
 - `holorobot/` : la bibliothèque Python des étudiants (`pyproject.toml` pour l'installer).
-- `notebooks/` : carnets JupyterLab pour les étudiants, par exemple `decouverte_robot.ipynb` (batterie, lidar et caméra, sans bouger les roues).
+- `notebooks/` : carnets JupyterLab pour les étudiants : `decouverte_robot.ipynb` (batterie, lidar et caméra, sans bouger les roues) et `decouverte_moteurs.ipynb` (des moteurs jusqu'à la fonction de pilotage du robot).
 - `docs/` : sa documentation, module par module.
 - `tests/` : tests de la bibliothèque, avec des enregistrements du robot dans `tests/data/`.
 - `setup/` : scripts de préparation des Pi.
