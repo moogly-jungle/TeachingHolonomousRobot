@@ -12,9 +12,12 @@ Usage :
 """
 import argparse
 import statistics
+import sys
 import time
+from pathlib import Path
 
-import pypot.dynamixel as dxl
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from holorobot.motors import voltages  # noqa: E402
 
 CELLS = 3
 # Tension d'un élément (V) -> charge (%), sous faible débit
@@ -37,12 +40,8 @@ def charge(cell_voltage):
 
 
 def read_pack(port, baudrate, ids):
-    """Tension du pack (V) : médiane des tensions lues par les moteurs."""
-    io = dxl.DxlIO(port, baudrate=baudrate)
-    try:
-        return statistics.median(io.get_present_voltage(ids))
-    finally:
-        io.close()
+    """Tension du pack (V) : médiane des tensions lues par les moteurs (tous si `ids` vaut None)."""
+    return statistics.median(voltages(ids, port, baudrate).values())
 
 
 def describe(pack):
@@ -54,7 +53,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", default="/dev/serial0")
     parser.add_argument("--baudrate", type=int, default=57600)
-    parser.add_argument("--ids", type=int, nargs="+", default=[1, 2, 4, 8])
+    parser.add_argument("--ids", type=int, nargs="+", help="moteurs à interroger (par défaut : tous)")
     parser.add_argument("--watch", type=float, metavar="SECONDES",
                         help="surveiller en relisant toutes les SECONDES")
     args = parser.parse_args()

@@ -102,7 +102,7 @@ def main():
     found = 0
     for baud in bauds:
         timeout = 0.012 if baud >= 200000 else 0.03
-        with serial.Serial(args.port, baud, timeout=0) as port:
+        with serial.Serial(args.port, baud, timeout=0, exclusive=True) as port:  # échoue si le bus est déjà utilisé
             echo = detect_echo(port, timeout)
             garbage = 0
             print(f"--- {baud} bauds (écho {'présent' if echo else 'absent'})", flush=True)

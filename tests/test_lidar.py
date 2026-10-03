@@ -5,12 +5,13 @@ Lancer avec : python3 -m pytest tests   (ou simplement : python3 tests/test_lida
 L'enregistrement tests/data/x4_raw.bin a été décodé une première fois par un décodeur de référence
 écrit d'après le pilote officiel YDLidar-SDK : les valeurs attendues ci-dessous en viennent.
 """
-import math
 import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import numpy as np  # noqa: E402
 
 from holorobot import lidar  # noqa: E402
 
@@ -126,7 +127,104 @@ def test_scan_helpers():
     assert [round(v, 9) for v in x] == [1.0, 0.0, -0.5]
     assert [round(v, 9) for v in y] == [0.0, -2.0, 0.0]
     assert lidar.Scan(angles=(), distances=()).nearest() is None
-    assert math.isclose(lidar.angle_correction(155.3), 0.0, abs_tol=1e-12)
+    assert np.isclose(lidar.angle_correction(155.3), 0.0, atol=1e-12)
+
+
+def simulated_scan(walls, noise=0.005, step=0.5, dropout=0.1, seed=0):
+    """Scan simulé : un rayon tous les `step` degrés (sens horaire), arrêté par le mur le plus proche."""
+    rng = random.Random(seed)
+    points = []
+    for k in range(int(round(360 / step))):
+        a = k * step
+        dx, dy = np.cos(np.radians(a)), -np.sin(np.radians(a))
+        best = None
+        for (x1, y1), (x2, y2) in walls:
+            ex, ey = x2 - x1, y2 - y1
+            den = dx * ey - dy * ex
+            if abs(den) < 1e-12:
+                continue
+            t = (x1 * ey - y1 * ex) / den  # distance le long du rayon
+            u = (x1 * dy - y1 * dx) / den  # position sur le mur, de 0 à 1
+            if t > 0 and 0 <= u <= 1:
+                best = t if best is None else min(best, t)
+        if best is not None and rng.random() >= dropout:
+            points.append((a, best + rng.gauss(0, noise)))
+    return points
+
+
+def angle_gap(a, b):
+    return abs((a - b + 180) % 360 - 180)
+
+
+def test_segment_helpers():
+    segment = lidar.Segment(start=(1.0, 1.0), end=(1.0, -1.0), points=20, rms=0.002, confidence=0.9)
+    assert segment.length == 2.0 and segment.midpoint == (1.0, 0.0)
+    assert np.isclose(segment.angle, 90.0) and np.isclose(segment.distance, 1.0)
+    assert angle_gap(segment.bearing, 0.0) < 1e-9
+    assert [round(v, 12) for v in segment.equation] == [1.0, 0.0, -1.0]
+
+
+def test_segments_of_a_room():
+    # Pièce de 3,5 m sur 3 m, lidar décentré : murs à x = 2 (devant), x = -1,5, y = 1,2 (à gauche), y = -1,8
+    corners = [(2.0, 1.2), (2.0, -1.8), (-1.5, -1.8), (-1.5, 1.2)]
+    walls = list(zip(corners, corners[1:] + corners[:1]))
+    segments = lidar.find_segments(simulated_scan(walls))
+    confident = [s for s in segments if s.confidence > 0.5]
+    assert len(confident) == 4, [(round(s.distance, 2), round(s.bearing), round(s.confidence, 2)) for s in segments]
+    for distance, bearing, length in ((2.0, 0, 3.0), (1.8, 90, 3.5), (1.5, 180, 3.0), (1.2, 270, 3.5)):
+        match = [s for s in confident if abs(s.distance - distance) < 0.02 and angle_gap(s.bearing, bearing) < 2]
+        assert len(match) == 1, (distance, bearing)
+        s = match[0]
+        assert abs(s.length - length) < 0.2 and s.confidence > 0.8
+        a, b, c = s.equation
+        assert np.isclose(a * a + b * b, 1.0) and np.isclose(-c, s.distance)
+        for x, y in (s.start, s.end):
+            assert abs(a * x + b * y + c) < 1e-9
+
+
+def test_wall_across_zero_degrees():
+    # Le tour commence et finit à 0° : un mur droit devant ne doit pas être coupé en deux
+    segments = lidar.find_segments(simulated_scan([((1.5, 1.0), (1.5, -1.0))]))
+    assert len(segments) == 1
+    assert abs(segments[0].length - 2.0) < 0.1 and angle_gap(segments[0].bearing, 0.0) < 1
+
+
+def test_clutter_gives_no_confident_segment():
+    rng = random.Random(3)
+    points = [(rng.uniform(0, 360), rng.uniform(0.3, 3.0)) for _ in range(300)]
+    assert all(s.confidence < 0.5 for s in lidar.find_segments(points))
+
+
+def test_holes_lower_the_confidence():
+    # Dans un même tour, un mur bien mesuré devant, et derrière un mur qui renvoie mal le laser
+    rng = random.Random(1)
+    points = [(a, d) for a, d in simulated_scan([((1.0, 1.5), (1.0, -1.5)), ((-1.0, -1.5), (-1.0, 1.5))], dropout=0.05)
+              if not 90 < a < 270 or rng.random() > 0.6]
+    segments = lidar.find_segments(points)
+    front = [s for s in segments if angle_gap(s.bearing, 0) < 5]
+    back = [s for s in segments if angle_gap(s.bearing, 180) < 5]
+    assert len(front) == len(back) == 1
+    assert back[0].confidence < front[0].confidence - 0.2
+
+
+def test_recorded_room_segments():
+    # Sur MobileRobot-1 immobile, un mur à 1,43 m presque droit devant, vu à chaque tour
+    scans = lidar.decode(RAW)
+    seen = 0
+    for scan in scans:
+        segments = scan.segments()
+        assert 8 <= len(segments) <= 25
+        seen += any(abs(s.distance - 1.43) < 0.03 and angle_gap(s.bearing, 356) < 3 and s.confidence > 0.8
+                    for s in segments)
+    assert seen >= 0.9 * len(scans)
+
+
+def test_degenerate_scans():
+    # angles arrondis au degré (le pas angulaire médian vaut 0) et points tous identiques : pas d'erreur
+    rounded = [(float(round(k / 3)), 1.0 + 0.001 * (k % 3)) for k in range(360 * 3)]
+    lidar.find_segments(rounded)
+    assert lidar.find_segments([(10.0, 1.0)] * 20, min_length=0) == []
+    assert lidar.find_segments([]) == []
 
 
 if __name__ == "__main__":

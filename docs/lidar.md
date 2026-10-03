@@ -52,7 +52,7 @@ with Lidar() as lidar:
 
 ### Coordonnées cartésiennes
 
-`scan.xy()` donne les points en mètres, avec x vers le 0° du lidar et y vers sa gauche :
+`scan.xy()` donne les points en mètres, dans un tableau numpy de N lignes (x, y), avec x vers le 0° du lidar et y vers sa gauche :
 
 ```python
 with Lidar() as lidar:
@@ -60,13 +60,39 @@ with Lidar() as lidar:
         print(f"x = {x:+.2f} m, y = {y:+.2f} m")
 ```
 
+### Segments de droite : murs et meubles
+
+`scan.segments()` renvoie les segments de droite du scan, du plus sûr au moins sûr. Chacun a une confiance entre 0 et 1, et l'équation cartésienne de sa droite :
+
+```python
+with Lidar() as lidar:
+    scan = lidar.get_scan()
+
+for s in scan.segments():
+    if s.confidence < 0.5:
+        break                              # la liste est triée : les suivants sont moins sûrs
+    a, b, c = s.equation                   # a·x + b·y + c = 0
+    print(f"{s.length:.2f} m, à {s.distance:.2f} m vu à {s.bearing:.0f}° (confiance {s.confidence:.2f}) : "
+          f"{a:+.3f}·x {b:+.3f}·y {c:+.3f} = 0")
+```
+
+Les coordonnées sont celles de `xy()` : en mètres, x vers le 0° du lidar, y vers sa gauche. L'équation est normalisée : $a^2 + b^2 = 1$, $(a, b)$ va du lidar vers la droite et $c = -$distance. Ainsi, $a\,x + b\,y + c$ est directement la distance signée d'un point $(x, y)$ à la droite, négative du côté du lidar. Sur la Pi, il faut environ 10 ms par tour.
+
+**La confiance** est le produit de trois notes, chacune entre 0 et 1 :
+
+- **alignement** : les mesures sont-elles bien sur une droite ? $\exp(-\tfrac12 (\text{rms}/\sigma)^2)$, où rms est l'écart moyen des mesures à la droite et $\sigma$ le bruit attendu du lidar à cette distance (environ 1 cm à 1 m) ;
+- **densité** : y a-t-il des trous ? Mesures présentes divisées par mesures attendues sur l'angle que couvre le segment ;
+- **nombre** : assez de mesures ? $1 - \exp(-n/15)$ pour $n$ mesures : 8 mesures donnent 0,4 et 30 mesures 0,86.
+
+**Comment ils sont trouvés** : le tour est coupé en amas là où deux mesures voisines sont trop loin l'une de l'autre ; chaque amas est scindé tant qu'un point s'écarte trop de la corde qui joint ses extrémités (c'est ce qui sépare deux murs à un coin) ; une droite est ajustée sur chaque morceau, puis les morceaux voisins alignés sont fusionnés.
+
 ### Dessiner un scan
 
 ```python
-import math
 import matplotlib
 matplotlib.use("Agg")  # pour enregistrer une image sans écran ; à retirer sur le bureau de la Pi
 import matplotlib.pyplot as plt
+import numpy as np
 from holorobot.lidar import Lidar
 
 with Lidar() as lidar:
@@ -75,7 +101,7 @@ with Lidar() as lidar:
 ax = plt.figure().add_subplot(projection="polar")
 ax.set_theta_zero_location("N")  # 0° en haut
 ax.set_theta_direction(-1)       # sens des aiguilles d'une montre, comme le lidar
-ax.scatter([math.radians(a) for a in scan.angles], scan.distances, s=2)
+ax.scatter(np.radians(scan.angles), scan.distances, s=2)
 plt.savefig("scan.png")
 ```
 
@@ -151,7 +177,25 @@ Un tour complet. Il ne change plus une fois créé : on peut garder plusieurs sc
 | `len(scan)` | nombre de points |
 | `points()` | liste de couples `(angle, distance)` |
 | `nearest()` | `(angle, distance)` du point le plus proche, ou `None` si le scan est vide |
-| `xy()` | liste de couples `(x, y)` en mètres : x vers le 0° du lidar, y vers sa gauche |
+| `xy()` | tableau numpy de N lignes `(x, y)`, en mètres : x vers le 0° du lidar, y vers sa gauche |
+| `segments(min_points=8, min_length=0.2, split=0.03)` | segments de droite, du plus sûr au moins sûr : voir ci-dessous |
+
+### `Segment`
+
+Un segment de droite trouvé dans un scan. Coordonnées en mètres, dans le repère de `xy()`.
+
+| Élément | Contenu |
+|---|---|
+| `start`, `end` | extrémités `(x, y)` |
+| `points` | nombre de mesures qui le composent |
+| `rms` | écart quadratique moyen des mesures à la droite, en m |
+| `confidence` | confiance, de 0 à 1 : alignement × densité × nombre |
+| `length`, `midpoint` | longueur (m) et milieu `(x, y)` |
+| `angle` | orientation du segment, en degrés dans [0, 180), dans le sens des aiguilles d'une montre depuis le 0° du lidar |
+| `distance`, `bearing` | distance la plus courte du lidar à la droite (m), et direction de ce point, en degrés comme les angles du scan |
+| `equation` | `(a, b, c)` tels que a·x + b·y + c = 0, avec a² + b² = 1 et c = −distance |
+
+Options de `segments()` (et de `find_segments(points, …)`, qui travaille sur une liste de `(angle, distance)`) : `min_points`, nombre minimal de mesures ; `min_length`, longueur minimale en m ; `split`, écart à la droite au-delà duquel un morceau est scindé (en m, plus 1 cm par mètre de distance).
 
 ### Fonctions de bas niveau
 
@@ -170,6 +214,8 @@ Elles ne servent que pour comprendre le pilote ou rejouer des données brutes :
 - **Un scan dure environ 0,14 s** (un tour). Si le robot bouge vite pendant ce temps, le scan est un peu déformé.
 - **Le premier tour après le démarrage est écarté**, car le moteur n'est pas encore à sa vitesse. `start()` l'attend pour vous.
 - **Des directions manquent** toujours un peu : rien vu, trop près, vitre… C'est normal. Ne supposez pas 360 points réguliers.
+- **Segments : un même mur peut en donner plusieurs**, s'il est en partie caché par un meuble ou coupé par une porte. À l'inverse, une rangée d'objets alignés peut former un segment. Un segment qui revient d'un tour à l'autre est plus sûr que sa seule confiance ne le dit.
+- **Les segments sont dans le repère du lidar**, pas dans celui du robot : pour passer de l'un à l'autre, il faut connaître la position et l'orientation du lidar sur votre robot.
 
 ## Comment ça marche, pour les curieux
 

@@ -106,7 +106,7 @@ with Lidar() as lidar:
         sizes.append(len(lidar.get_scan()))
         lidar.stop()
     print(f"F. 5 cycles start/get_scan/stop : {time.monotonic() - start:.1f} s, points par tour {sizes}")
-    lidar.start()  # pour que le « with » se termine normalement
+    lidar.start()  # relancé pour le test G
 
     # G. coût processeur d'un consommateur normal
     wall, cpu = time.monotonic(), time.process_time()

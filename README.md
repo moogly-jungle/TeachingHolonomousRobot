@@ -30,7 +30,7 @@ Les Pi sont préparées avant d'être confiées aux étudiants.
 
 1. **Carte SD** : Raspberry Pi OS Trixie 64 bits avec bureau, configurée au premier démarrage par cloud-init : nom du robot, wifi, SSH, et deux comptes. `etudiant` n'a pas les droits d'administration et ouvre le bureau automatiquement ; `admin` a `sudo`. *(Script à venir.)*
 2. **Port série des moteurs** : `sudo setup/configure_serial.sh`, puis redémarrer. Le vrai UART passe sur les GPIO 14/15, le Bluetooth sur le mini-UART, et la console série est retirée.
-3. **Environnement Python** : `sudo setup/install_robot_env.sh`. Il installe dans `/opt/robot/venv` Python 3.12, pypot, pyrealsense2, pyserial, matplotlib, ipython, JupyterLab et ipywidgets, ainsi que la bibliothèque `holorobot` (le dépôt est copié dans `/opt/robot/src` ; relancer le script la met à jour). Il place cet environnement en tête du `PATH` de tous les comptes. Les étudiants ne peuvent pas le modifier, mais chacun peut y ajouter des paquets pour lui seul avec `pip install --user`.
+3. **Environnement Python** : `sudo setup/install_robot_env.sh`. Il installe dans `/opt/robot/venv` Python 3.12, pypot, pyrealsense2, pyserial, matplotlib, ipython, JupyterLab, ipywidgets et Ultralytics (YOLO), ainsi que la bibliothèque `holorobot` (le dépôt est copié dans `/opt/robot/src` ; relancer le script la met à jour). Il place cet environnement en tête du `PATH` de tous les comptes. Les étudiants ne peuvent pas le modifier, mais chacun peut y ajouter des paquets pour lui seul avec `pip install --user`. Pour tenir sur une carte de 16 Go, PyTorch est pris en version CPU : celle de PyPI apporte pour ARM environ 5 Go de bibliothèques Nvidia, inutiles sur la Pi. L'environnement occupe ainsi 1,8 Go, et il reste environ 4 Go libres sur la carte.
 4. **JupyterLab** : `sudo setup/install_jupyter.sh`, qui demande un mot de passe. JupyterLab tourne alors en permanence sous le compte `etudiant` : depuis un navigateur du même réseau, `http://<nom-du-robot>.local:8888`. Les carnets de `notebooks/` sont copiés dans `~etudiant/notebooks`, sans jamais écraser un carnet existant.
 
 ## Bibliothèque `holorobot`
@@ -48,7 +48,8 @@ with Lidar() as lidar:          # lance le moteur et attend le premier tour
 
 - Un scan correspond à un tour du lidar : environ 7 par seconde, avec environ 500 points chacun, horodatés.
 - Les angles sont en degrés, comptés dans le sens des aiguilles d'une montre vu de dessus, depuis le 0° du lidar. Les distances sont en mètres. Les directions sans mesure (rien vu, ou obstacle à moins de 12 cm) sont absentes du scan : elles ne valent jamais 0.
-- `scan.points()` donne la liste des (angle, distance), `scan.xy()` les coordonnées cartésiennes (x vers le 0° du lidar, y vers sa gauche), et `for scan in lidar.scans():` permet de boucler sur les tours.
+- `scan.points()` donne la liste des (angle, distance), `scan.xy()` les coordonnées cartésiennes dans un tableau numpy (x vers le 0° du lidar, y vers sa gauche), et `for scan in lidar.scans():` permet de boucler sur les tours.
+- `scan.segments()` trouve les segments de droite (murs, faces de meubles), du plus sûr au moins sûr : extrémités, longueur, distance et direction, équation cartésienne a·x + b·y + c = 0 et confiance entre 0 et 1. Environ 10 ms par tour sur la Pi.
 - `holorobot.lidar.decode(octets)` décode un enregistrement brut, sans robot. Exemple : `tests/data/x4_raw.bin`.
 
 Le pilote suit le protocole officiel du X4 et n'occupe que 4 % d'un cœur de la Pi. On n'utilise pas PyLidar3, qui est bogué : il fait la moyenne des directions sans mesure avec les vraies distances et corrige mal les angles. Sur les mêmes données, 40 % de ses points sont des fantômes.
@@ -66,19 +67,20 @@ with Motors() as motors:               # ouvre le bus, trouve les moteurs, les m
 ```
 
 - Les vitesses sont en °/s, limitées à 720 °/s par défaut. `set_speeds()` envoie une consigne, `run()` la maintient pendant une durée, `stop()` freine, `release()` libère les roues.
-- **Chien de garde** : sans nouvelle consigne pendant 0,5 s, toutes les roues s'arrêtent. Un carnet planté ou un navigateur fermé n'emporte donc pas le robot.
+- **Chien de garde** : sans nouvelle consigne pendant 0,5 s, toutes les roues s'arrêtent. Un carnet planté ou un navigateur fermé n'emporte donc pas le robot. Il vit dans le programme : si celui-ci est tué brutalement, les roues gardent leur dernière vitesse ; coupez alors l'alimentation.
+- **Mode articulation** (contrôle en position) : `set_joint_mode()`, puis `move_to({id: angle})`. Pas utile pour les roues, mais de quoi faire, par exemple, une tourelle pan-tilt pour la caméra.
 - **Un seul programme à la fois** : le bus est verrouillé, et un second programme (un autre carnet, par exemple) reçoit un message clair au lieu de brouiller les échanges. pypot, lui, se contente d'un avertissement.
 
 Documentation complète, avec la cinématique des roues mecanum et holonomes : [`docs/moteurs.md`](docs/moteurs.md). Les schémas de `docs/img/` sont produits par `docs/img/schemas.py`.
 
 ### Tests
 
-`python3 tests/test_lidar.py`, `python3 tests/test_motors.py`, ou `python3 -m pytest tests`. Les premiers rejouent 8 s d'octets bruts enregistrés sur MobileRobot-1 ; les seconds vérifient la logique des moteurs (mode roue, limites, chien de garde, fermeture) avec un faux bus, sans robot.
+`python3 tests/test_lidar.py`, `python3 tests/test_motors.py`, ou `python3 -m pytest tests`. Les premiers rejouent 8 s d'octets bruts enregistrés sur MobileRobot-1 et vérifient la détection des segments sur des scans simulés ; les seconds vérifient la logique des moteurs avec un faux bus, sans robot : mode roue et mode articulation, limites et valeurs refusées, chien de garde, changement d'identifiant, fermeture.
 
 ## Contenu du dépôt
 
 - `holorobot/` : la bibliothèque Python des étudiants (`pyproject.toml` pour l'installer).
-- `notebooks/` : carnets JupyterLab pour les étudiants : `decouverte_robot.ipynb` (batterie, lidar et caméra, sans bouger les roues) et `decouverte_moteurs.ipynb` (des moteurs jusqu'à la fonction de pilotage du robot).
+- `notebooks/` : carnets JupyterLab pour les étudiants : `tableau_de_bord.ipynb` (batterie, lidar et ses segments de droite, caméra et objets reconnus par YOLO, moteurs : liste, températures, identifiants, curseurs de vitesse et de position) et `decouverte_moteurs.ipynb` (des moteurs jusqu'à la fonction de pilotage du robot).
 - `docs/` : sa documentation, module par module.
 - `tests/` : tests de la bibliothèque, avec des enregistrements du robot dans `tests/data/`.
 - `setup/` : scripts de préparation des Pi.

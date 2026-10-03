@@ -11,6 +11,8 @@ Exemple :
     with Lidar() as lidar:
         scan = lidar.get_scan()
         print(len(scan), "points ; le plus proche (angle, distance) :", scan.nearest())
+        for segment in scan.segments():    # murs, meubles : du plus sûr au moins sûr
+            print(segment.length, segment.equation, segment.confidence)
 
 Conventions :
 - les angles sont en degrés dans [0, 360), comptés dans le sens des aiguilles d'une montre vu de
@@ -21,10 +23,11 @@ Conventions :
 Le décodage suit le protocole officiel du X4 : manuel de développement YDLIDAR et pilote
 YDLidar-SDK (src/YDlidarDriver.cpp : waitPackage, calcCheckSum, parsePoints).
 """
-import math
 import threading
 import time
 from dataclasses import dataclass
+
+import numpy as np
 
 BAUDRATE = 128000
 CMD_START, CMD_STOP = b"\xa5\x60", b"\xa5\x65"
@@ -52,8 +55,16 @@ class Scan:
         return min(self.points(), key=lambda point: point[1], default=None)
 
     def xy(self):
-        """Coordonnées cartésiennes en m : x vers le 0° du lidar, y vers sa gauche."""
-        return [(d * math.cos(math.radians(a)), -d * math.sin(math.radians(a))) for a, d in self.points()]
+        """Coordonnées cartésiennes en m : tableau numpy de N lignes (x, y), x vers le 0° du lidar, y vers sa gauche."""
+        a, d = np.radians(self.angles), np.asarray(self.distances)
+        return np.column_stack([d * np.cos(a), -d * np.sin(a)])
+
+    def segments(self, **options):
+        """Segments de droite du scan (murs, faces de meubles…), du plus sûr au moins sûr.
+
+        Chaque Segment a une confiance entre 0 et 1. Options : voir find_segments().
+        """
+        return find_segments(self.points(), **options)
 
 
 @dataclass(frozen=True)
@@ -105,8 +116,8 @@ def parse_packets(buffer, start=0):
 
 
 def angle_correction(distance_mm):
-    """Correction d'angle du X4, en degrés : l'émetteur laser et le capteur sont décalés."""
-    return math.degrees(math.atan(21.8 * (155.3 - distance_mm) / (155.3 * distance_mm)))
+    """Correction d'angle du X4, en degrés (un nombre ou un tableau) : l'émetteur laser et le capteur sont décalés."""
+    return np.degrees(np.arctan(21.8 * (155.3 - distance_mm) / (155.3 * distance_mm)))
 
 
 def packet_points(packet):
@@ -114,17 +125,13 @@ def packet_points(packet):
     first, last = packet.first_angle, packet.last_angle
     if last < first:
         last += 360.0  # le paquet passe par 0°
-    count = len(packet.samples)
-    step = (last - first) / (count - 1) if count > 1 else 0.0
-    points = []
-    for k, raw in enumerate(packet.samples):
-        if raw == 0:  # pas de mesure : on n'invente pas de point
-            continue
-        distance = raw / 4.0
-        # Chaque échantillon est corrigé avec SA distance
-        angle = (first + k * step + angle_correction(distance)) % 360.0
-        points.append((angle, distance / 1000.0))
-    return points
+    raw = np.asarray(packet.samples, dtype=float)
+    step = (last - first) / (len(raw) - 1) if len(raw) > 1 else 0.0
+    measured = raw > 0  # pas de mesure : on n'invente pas de point
+    distance_mm = raw[measured] / 4.0
+    # Chaque échantillon est corrigé avec SA distance
+    angles = (first + np.flatnonzero(measured) * step + angle_correction(distance_mm)) % 360.0
+    return list(zip(angles.tolist(), (distance_mm / 1000.0).tolist()))
 
 
 MIN_TURN_COVERAGE = 350.0  # degrés : en dessous, ce n'est qu'un morceau de tour
@@ -171,6 +178,7 @@ class TurnAssembler:
 
 
 def make_scan(points, timestamp=None):
+    """Scan à partir d'une liste de (angle, distance)."""
     return Scan(tuple(a for a, _ in points), tuple(d for _, d in points), timestamp)
 
 
@@ -184,6 +192,209 @@ def decode(raw):
         if points is not None:
             scans.append(make_scan(points))
     return scans
+
+
+# Segments de droite
+#
+# Méthode classique pour un lidar 2D (« split and merge ») :
+# 1. le tour est coupé en amas là où deux mesures voisines sont trop loin l'une de l'autre ;
+# 2. chaque amas est scindé tant qu'un point s'écarte trop de la corde qui joint ses extrémités
+#    (c'est ce qui sépare deux murs à un coin) ;
+# 3. une droite est ajustée sur chaque morceau (moindres carrés orthogonaux), et les morceaux
+#    voisins alignés sont fusionnés.
+
+MIN_INCIDENCE = 10.0  # degrés : un mur vu plus en biais est coupé en morceaux
+
+
+def sensor_noise(distance):
+    """Bruit attendu d'une mesure du X4 à cette distance (écart-type, en m) : environ 1 cm à 1 m."""
+    return 0.006 + 0.004 * distance
+
+
+@dataclass(frozen=True)
+class Segment:
+    """Un segment de droite vu par le lidar : un mur, une face de meuble…
+
+    Coordonnées en mètres dans le repère du lidar, comme Scan.xy() : x vers le 0° du lidar, y vers
+    sa gauche.
+    """
+
+    start: tuple  # (x, y) d'une extrémité
+    end: tuple  # (x, y) de l'autre extrémité
+    points: int  # nombre de mesures du scan qui le composent
+    rms: float  # écart quadratique moyen des mesures à la droite, en m
+    confidence: float  # de 0 à 1 : alignement × densité × nombre de points (voir find_segments)
+
+    @property
+    def length(self):
+        """Longueur, en m."""
+        return float(np.hypot(self.end[0] - self.start[0], self.end[1] - self.start[1]))
+
+    @property
+    def midpoint(self):
+        """Milieu (x, y), en m."""
+        return ((self.start[0] + self.end[0]) / 2, (self.start[1] + self.end[1]) / 2)
+
+    @property
+    def angle(self):
+        """Orientation du segment en degrés, dans [0, 180), dans le sens des aiguilles d'une montre depuis le 0° du lidar."""
+        return float(np.degrees(np.arctan2(self.start[1] - self.end[1], self.end[0] - self.start[0])) % 180.0)
+
+    @property
+    def distance(self):
+        """Distance la plus courte du lidar à la droite qui porte le segment, en m."""
+        return float(np.hypot(*self._foot()))
+
+    @property
+    def bearing(self):
+        """Direction de ce point le plus proche, en degrés, comptés comme les angles du scan."""
+        fx, fy = self._foot()
+        return float(np.degrees(np.arctan2(-fy, fx)) % 360.0)
+
+    @property
+    def equation(self):
+        """Équation cartésienne A·x + B·y + C = 0 de la droite qui porte le segment : (A, B, C).
+
+        Normalisée : A² + B² = 1, (A, B) va du lidar vers la droite, et C = -distance. Ainsi,
+        A·x + B·y + C est la distance signée du point (x, y) à la droite, négative du côté du lidar.
+        """
+        fx, fy = self._foot()
+        d = np.hypot(fx, fy)
+        if d > 1e-9:
+            a, b = fx / d, fy / d
+        else:  # droite qui passe par le lidar : une des deux normales
+            length = self.length
+            a, b = (self.start[1] - self.end[1]) / length, (self.end[0] - self.start[0]) / length
+        return float(a), float(b), float(-(a * self.start[0] + b * self.start[1]))
+
+    def _foot(self):
+        """Pied de la perpendiculaire abaissée du lidar sur la droite."""
+        (x1, y1), (x2, y2) = self.start, self.end
+        dx, dy = x2 - x1, y2 - y1
+        t = -(x1 * dx + y1 * dy) / (dx * dx + dy * dy)
+        return x1 + t * dx, y1 + t * dy
+
+
+def _fit_line(xy):
+    """Droite des moindres carrés orthogonaux d'un tableau de points (N, 2) : (centre, direction unitaire, rms)."""
+    center = xy.mean(axis=0)
+    dx, dy = (xy - center).T
+    phi = 0.5 * np.arctan2(2 * np.sum(dx * dy), np.sum(dx * dx) - np.sum(dy * dy))
+    u = np.array([np.cos(phi), np.sin(phi)])
+    rms = np.sqrt(np.mean((dx * u[1] - dy * u[0]) ** 2))
+    return center, u, rms
+
+
+def find_segments(points, min_points=8, min_length=0.2, split=0.03):
+    """Segments de droite dans une liste de (angle en degrés, distance en m), comme Scan.points().
+
+    Renvoie une liste de Segment, du plus sûr au moins sûr. Options :
+    - min_points : nombre minimal de mesures d'un segment ;
+    - min_length : longueur minimale, en m ;
+    - split : écart à la droite, en m, au-delà duquel un morceau est scindé (plus 1 cm par mètre
+      de distance, car les mesures lointaines sont plus bruitées).
+
+    La confiance, entre 0 et 1, est le produit de trois notes :
+    - alignement = exp(-½ (rms / σ)²), où σ est le bruit attendu du lidar à cette distance : les
+      mesures sont-elles bien sur une droite ?
+    - densité = mesures présentes / mesures attendues sur l'angle que couvre le segment : y a-t-il
+      des trous ?
+    - nombre = 1 - exp(-n / 15) pour n mesures : 8 mesures donnent 0,4, 30 mesures 0,86.
+    """
+    pts = np.array(sorted(points), dtype=float).reshape(-1, 2)
+    n = len(pts)
+    if n < min_points:
+        return []
+    angles, dist = pts[:, 0], pts[:, 1]
+    rad = np.radians(angles)
+    xy = np.column_stack([dist * np.cos(rad), -dist * np.sin(rad)])
+    gap = (np.roll(angles, -1) - angles) % 360.0  # écart angulaire avec la mesure suivante (le tour est circulaire)
+    step = max(np.sort(gap)[n // 2], 1e-6)  # pas angulaire typique ; des angles arrondis peuvent se répéter
+    limit = np.radians(MIN_INCIDENCE)
+
+    # 1. Coupures entre mesures voisines, avec un seuil qui grandit avec la distance et l'écart
+    # angulaire : un mur vu sous un angle rasant reste d'un seul tenant. Le seuil est l'écart entre
+    # deux mesures voisines sur un mur vu sous l'incidence MIN_INCIDENCE (loi des sinus), plus trois
+    # fois le bruit du lidar : au-delà, ce n'est plus le même objet.
+    dtheta = np.radians(gap)
+    r = np.minimum(dist, np.roll(dist, -1))
+    jump = np.hypot(*(np.roll(xy, -1, axis=0) - xy).T)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        threshold = r * np.sin(dtheta) / np.sin(limit - dtheta) + 3 * sensor_noise(r)
+    cut = (dtheta >= limit) | (jump > threshold)
+    cuts = np.flatnonzero(cut)
+    # on part juste après une coupure, pour qu'aucun amas ne chevauche 0° ; sans coupure (pièce vue
+    # en entier), juste après le plus grand saut
+    first = cuts[0] + 1 if len(cuts) else np.argmax(jump) + 1
+    order = (first + np.arange(n)) % n
+    clusters = [c for c in np.split(order, np.flatnonzero(cut[order]) + 1) if len(c)]
+
+    # 2. Scission récursive au point le plus éloigné de la corde ; une boucle fermée est d'abord
+    # scindée au point le plus éloigné de son départ
+    def divide(indices, pieces):
+        if len(indices) < min_points:
+            return
+        a, b = xy[indices[0]], xy[indices[-1]]
+        chord = b - a
+        if np.hypot(*chord) < 2 * split:
+            gaps = np.hypot(*(xy[indices] - a).T)
+        else:
+            gaps = np.abs((xy[indices, 0] - a[0]) * chord[1] - (xy[indices, 1] - a[1]) * chord[0]) / np.hypot(*chord)
+        k = np.argmax(gaps)
+        if gaps[k] > split + 0.01 * dist[indices].mean() and 0 < k < len(indices) - 1:
+            divide(indices[:k + 1], pieces)
+            divide(indices[k:], pieces)
+        else:
+            pieces.append(indices)
+
+    # 3. Fusion des morceaux voisins d'un même amas qui sont alignés : moins de 3° d'écart, et une
+    # droite commune presque aussi bonne. Jamais par-dessus une coupure (une porte, par exemple).
+    def join(piece_a, piece_b):
+        """Les deux morceaux mis bout à bout, s'ils sont alignés ; sinon None."""
+        _, ua, rms_a = _fit_line(xy[piece_a])
+        _, ub, rms_b = _fit_line(xy[piece_b])
+        both = np.concatenate([piece_a, piece_b[piece_b != piece_a[-1]]])
+        _, _, rms = _fit_line(xy[both])
+        parallel = abs(ua @ ub) > np.cos(np.radians(3))
+        if parallel and rms < 1.3 * max(rms_a, rms_b) + 0.25 * sensor_noise(dist[both].mean()):
+            return both
+        return None
+
+    merged = []
+    for cluster in clusters:
+        pieces = []
+        divide(cluster, pieces)
+        joined = []
+        for indices in pieces:
+            both = join(joined[-1], indices) if joined else None
+            if both is not None:
+                joined[-1] = both
+            else:
+                joined.append(indices)
+        if not len(cuts) and len(joined) > 1:  # boucle fermée : le dernier morceau touche le premier
+            both = join(joined[-1], joined[0])
+            if both is not None:
+                joined = [both] + joined[1:-1]
+        merged.extend(joined)
+
+    # 4. Ajustement final et confiance
+    segments = []
+    for indices in merged:
+        if len(indices) < min_points:
+            continue
+        center, u, rms = _fit_line(xy[indices])
+        start = center + ((xy[indices[0]] - center) @ u) * u  # extrémités projetées sur la droite
+        end = center + ((xy[indices[-1]] - center) @ u) * u
+        if np.hypot(*(end - start)) < max(min_length, 1e-6):
+            continue
+        alignment = np.exp(-0.5 * (rms / sensor_noise(dist[indices].mean())) ** 2)
+        span = (angles[indices[-1]] - angles[indices[0]]) % 360.0
+        density = min(1.0, len(indices) / (span / step + 1))
+        number = 1 - np.exp(-len(indices) / 15)
+        segments.append(Segment((float(start[0]), float(start[1])), (float(end[0]), float(end[1])),
+                                len(indices), float(rms), float(alignment * density * number)))
+    segments.sort(key=lambda s: -s.confidence)
+    return segments
 
 
 class Lidar:
@@ -208,9 +419,14 @@ class Lidar:
         self._serial.baudrate = BAUDRATE
         self._serial.timeout = 0.1
         self._serial.dtr = False  # la ligne DTR commande le moteur : arrêté pour l'instant
+        self._serial.exclusive = True  # un seul programme à la fois : un second recevrait une erreur claire
         try:
             self._serial.open()
         except serial.SerialException as error:
+            if "lock" in str(error).lower():
+                raise RuntimeError(
+                    f"Le lidar ({port}) est déjà utilisé, par ce programme ou par un autre (un autre "
+                    "carnet ?) : fermez-le (lidar.close()) ou redémarrez le noyau qui l'utilise.") from None
             raise RuntimeError(f"Impossible d'ouvrir le lidar sur {port} : {error}") from error
         self._thread = None
         self._control = threading.Lock()  # start(), stop() et close() un seul à la fois
@@ -226,7 +442,7 @@ class Lidar:
             self._serial.reset_input_buffer()
             info = self._request(CMD_INFO, 0x04, 20)
             status = self._request(CMD_HEALTH, 0x06, 3)
-        except Exception:
+        except BaseException:  # y compris une interruption : le port doit être rendu
             self._serial.close()
             raise
         self.model = info[0]
@@ -267,7 +483,7 @@ class Lidar:
             self._thread.start()
         try:
             self.get_scan(timeout=5.0)  # vérifie que les mesures arrivent bien
-        except Exception:
+        except BaseException:  # y compris une interruption : le moteur et la lecture s'arrêtent
             self.stop()
             raise
 
@@ -349,7 +565,7 @@ class Lidar:
     def __enter__(self):
         try:
             self.start()
-        except Exception:
+        except BaseException:
             self._serial.close()
             raise
         return self

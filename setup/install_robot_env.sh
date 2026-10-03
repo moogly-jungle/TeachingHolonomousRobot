@@ -4,9 +4,15 @@
 # - Python 3.12, installé par uv : pyrealsense2 n'a pas de version ARM pour Python 3.13,
 #   celui de Raspberry Pi OS Trixie.
 # - Un environnement virtuel /opt/robot/venv avec pypot, pyrealsense2, pyserial, matplotlib,
-#   ipython, JupyterLab et ipywidgets. Il est en lecture seule pour les étudiants, mais chacun
-#   peut y ajouter des paquets pour lui seul avec « pip install --user ». Pas de PyLidar3, qui
-#   est bogué : le lidar se lit avec notre pilote, holorobot.lidar.
+#   ipython, JupyterLab, ipywidgets et Ultralytics (YOLO, avec PyTorch). Il est en lecture seule
+#   pour les étudiants, mais chacun peut y ajouter des paquets pour lui seul avec
+#   « pip install --user ». Pas de PyLidar3, qui est bogué : le lidar se lit avec notre pilote,
+#   holorobot.lidar.
+# - Place sur la carte SD (16 Go) : PyTorch est pris en version CPU, car celle que PyPI fournit
+#   pour ARM apporte environ 5 Go de bibliothèques Nvidia (CUDA), inutiles sur la Pi. Les paquets
+#   sont précompilés à l'installation, sinon chaque import les recompile (l'environnement est en
+#   lecture seule) : 48 s au lieu de 4 pour importer YOLO. Les caches de téléchargement sont vidés
+#   à la fin.
 # - La bibliothèque holorobot : le dépôt est copié dans /opt/robot/src et installé dans
 #   l'environnement, pour qu'elle s'importe de n'importe où. Relancer le script la met à jour.
 # - /opt/robot/venv/bin en tête du PATH de tous les comptes.
@@ -20,7 +26,7 @@ PREFIX=/opt/robot
 PYTHON_VERSION=3.12
 UV_VERSION=0.12.21
 UV_SHA256=030b69227b40af8c1981b7301793dc66e71ed3c796ea8688209dd268bd91ec51
-PACKAGES=(pypot pyrealsense2 pyserial matplotlib ipython jupyterlab ipywidgets)
+PACKAGES=(pypot pyrealsense2 pyserial matplotlib ipython jupyterlab ipywidgets ultralytics)
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(dirname "$HERE")
 
@@ -42,6 +48,9 @@ echo "=== Python $PYTHON_VERSION et environnement $PREFIX/venv"
 # Tout reste sous $PREFIX, hors des dossiers personnels, pour que chaque compte y ait accès
 export UV_PYTHON_INSTALL_DIR=$PREFIX/python UV_PYTHON_BIN_DIR=$PREFIX/python/bin
 export UV_CACHE_DIR=/var/cache/uv UV_PYTHON_PREFERENCE=only-managed
+# PyTorch en version CPU, même quand c'est une dépendance (d'Ultralytics) qui le demande, et
+# paquets précompilés dès l'installation
+export UV_TORCH_BACKEND=cpu UV_COMPILE_BYTECODE=1
 /usr/local/bin/uv python install "$PYTHON_VERSION"
 if [ ! -x "$PREFIX/venv/bin/python" ]; then
     # --system-site-packages laisse actif le « pip install --user » de chaque étudiant
@@ -79,8 +88,16 @@ echo "=== Vérification"
 import sys
 from importlib.metadata import version
 
-import holorobot.lidar, ipywidgets, jupyterlab, matplotlib, numpy, pyrealsense2, pypot.dynamixel, serial  # noqa: F401
+import holorobot.lidar, holorobot.motors, ipywidgets, jupyterlab, matplotlib, numpy, pyrealsense2, pypot.dynamixel, serial  # noqa: F401
+import torch, ultralytics  # noqa: F401
 
+assert torch.version.cuda is None, "PyTorch n'est pas la version CPU : les bibliothèques CUDA prennent ~5 Go"
 print("Python", sys.version.split()[0], "|", " | ".join(
-    f"{p} {version(p)}" for p in ("holorobot", "pypot", "pyrealsense2", "pyserial", "numpy", "matplotlib", "jupyterlab")))
+    f"{p} {version(p)}" for p in ("holorobot", "pypot", "pyrealsense2", "pyserial", "numpy", "matplotlib",
+                                  "jupyterlab", "torch", "ultralytics")))
 EOF
+
+echo "=== Caches de téléchargement vidés (place sur la carte SD)"
+/usr/local/bin/uv cache clean
+apt-get clean
+df -h / | tail -1

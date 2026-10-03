@@ -24,7 +24,8 @@ if ! grep -q '^enable_uart=1' "$CONFIG"; then
     changed=1
 fi
 if ! grep -q '^dtoverlay=miniuart-bt' "$CONFIG"; then
-    printf '\n# Bus Dynamixel sur les GPIO 14/15 : le vrai UART (PL011) va aux broches,\n# le Bluetooth passe sur le mini-UART (suffisant pour une manette).\ndtoverlay=miniuart-bt\n' >> "$CONFIG"
+    # « [all] » : la ligne vaut pour toutes les cartes, même si le fichier finit par une section [cm4]…
+    printf '\n[all]\n# Bus Dynamixel sur les GPIO 14/15 : le vrai UART (PL011) va aux broches,\n# le Bluetooth passe sur le mini-UART (suffisant pour une manette).\ndtoverlay=miniuart-bt\n' >> "$CONFIG"
     changed=1
 fi
 

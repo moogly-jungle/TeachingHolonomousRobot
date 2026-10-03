@@ -3,59 +3,56 @@
 
 Usage : python3 docs/img/schemas.py   (il faut matplotlib)
 
-Repère du robot : x vers l'avant (côté caméra), y vers la gauche, rotation ω positive dans le sens
-inverse des aiguilles d'une montre, vu de dessus. Sur les schémas, l'avant est en haut.
+Repère du robot : x vers la droite, y vers l'avant, rotation ω positive dans le sens inverse des
+aiguilles d'une montre, vu de dessus. Sur les schémas, l'avant est en haut : les coordonnées du
+robot sont aussi celles du dessin.
 """
-import math
 from pathlib import Path
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import Arc, Circle, FancyArrowPatch, FancyBboxPatch, Polygon  # noqa: E402
+from matplotlib.patches import Arc, Circle, Ellipse, FancyArrowPatch, FancyBboxPatch  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-INK, MUTED, BLUE, RED, GREEN = "#1A1C2B", "#5C6076", "#2A3F9D", "#C1443C", "#2E7D4F"
+INK, MUTED, BLUE, RED, GREEN, GHOST = "#1A1C2B", "#5C6076", "#2A3F9D", "#C1443C", "#2E7D4F", "#9EA2B3"
 CHASSIS, WHEEL, ROLLER = "#ECE9E1", "#3A3D4F", "#C9C6BD"
 
 
-def P(x, y):
-    """Coordonnées du robot (x vers l'avant, y vers la gauche) -> coordonnées du dessin."""
-    return (-y, x)
-
-
-def arrow(ax, start, end, color=INK, lw=2.2, ls="-", size=16, z=4):
-    ax.add_patch(FancyArrowPatch(P(*start), P(*end), arrowstyle="-|>", mutation_scale=size, color=color,
-                                 lw=lw, linestyle=ls, zorder=z, shrinkA=0, shrinkB=0))
+def arrow(ax, start, end, color=INK, lw=2.2, ls="-", size=16, z=4, style="-|>"):
+    ax.add_patch(FancyArrowPatch(start, end, arrowstyle=style, mutation_scale=size, color=color, lw=lw,
+                                 linestyle=ls, zorder=z, shrinkA=0, shrinkB=0))
 
 
 def text(ax, xy, s, color=INK, size=14, **kw):
     kw.setdefault("ha", "center")
     kw.setdefault("va", "center")
-    ax.text(*P(*xy), s, color=color, fontsize=size, zorder=6, **kw)
+    ax.text(*xy, s, color=color, fontsize=size, zorder=6, **kw)
 
 
 def rotation(ax, center, radius, color=BLUE, s=r"$\omega$", size=15, label_angle=45):
     """Flèche courbe dans le sens inverse des aiguilles d'une montre, vu de dessus."""
-    cx, cy = P(*center)
+    cx, cy = center
     start, end = -50.0, 215.0
     ax.add_patch(Arc((cx, cy), 2 * radius, 2 * radius, theta1=start, theta2=end - 8, color=color, lw=2.2, zorder=4))
-    a0, a1 = math.radians(end - 12), math.radians(end)
-    tail = (cx + radius * math.cos(a0), cy + radius * math.sin(a0))
-    tip = (cx + radius * math.cos(a1), cy + radius * math.sin(a1))
+    a0, a1 = np.radians(end - 12), np.radians(end)
+    tail = (cx + radius * np.cos(a0), cy + radius * np.sin(a0))
+    tip = (cx + radius * np.cos(a1), cy + radius * np.sin(a1))
     ax.add_patch(FancyArrowPatch(tail, tip, arrowstyle="-|>", mutation_scale=16, color=color, lw=2.2, zorder=4,
                                  shrinkA=0, shrinkB=0))
-    la = math.radians(label_angle)
-    ax.text(cx + radius * 1.45 * math.cos(la), cy + radius * 1.45 * math.sin(la), s, color=color, fontsize=size,
+    la = np.radians(label_angle)
+    ax.text(cx + radius * 1.45 * np.cos(la), cy + radius * 1.45 * np.sin(la), s, color=color, fontsize=size,
             ha="center", va="center", zorder=6)
 
 
 def axes(ax, origin=(0, 0), length=0.12, size=14):
-    arrow(ax, origin, (origin[0] + length, origin[1]), color=INK, lw=1.8, size=13)
-    arrow(ax, origin, (origin[0], origin[1] + length), color=INK, lw=1.8, size=13)
-    text(ax, (origin[0] + length + 0.025, origin[1]), "$x$", size=size)
-    text(ax, (origin[0], origin[1] + length + 0.03), "$y$", size=size)
+    ox, oy = origin
+    arrow(ax, origin, (ox + length, oy), color=INK, lw=1.8, size=13)
+    arrow(ax, origin, (ox, oy + length), color=INK, lw=1.8, size=13)
+    text(ax, (ox + length + 0.025, oy), "$x$", size=size)
+    text(ax, (ox, oy + length + 0.03), "$y$", size=size)
 
 
 def setup(width, height):
@@ -73,140 +70,195 @@ def save(fig, name):
 
 def robot_frame():
     """Repère du robot, vitesse du robot (v, ω) et vitesse d'un point P."""
-    fig, ax = setup(6.4, 6.2)
-    lx, ly = 0.26, 0.21
-    ax.add_patch(FancyBboxPatch(P(-lx, ly), 2 * ly, 2 * lx, boxstyle="round,pad=0,rounding_size=0.03",
+    fig, ax = setup(6.2, 6.6)
+    hw, hl = 0.21, 0.26  # demi-largeur (selon x), demi-longueur (selon y)
+    ax.add_patch(FancyBboxPatch((-hw, -hl), 2 * hw, 2 * hl, boxstyle="round,pad=0,rounding_size=0.03",
                                 fc=CHASSIS, ec=MUTED, lw=1.5, zorder=1))
-    text(ax, (lx + 0.035, ly - 0.06), "avant (caméra)", color=MUTED, size=10.5)
+    text(ax, (-0.12, hl - 0.04), "avant", color=MUTED, size=11)
     axes(ax, length=0.13)
-    text(ax, (-0.035, -0.035), "$O$", size=13)
-    rotation(ax, (0, 0), 0.07, label_angle=158)
-    v = (0.14, 0.07)
+    text(ax, (-0.014, -0.034), "$O$", size=13)
+    rotation(ax, (0, 0), 0.07, label_angle=235)
+    v = (0.06, 0.13)
     arrow(ax, (0, 0), v, color=GREEN, lw=2.6)
-    text(ax, (v[0] + 0.03, v[1] + 0.06), r"$\vec v=(v_x,\,v_y)$", color=GREEN, size=13)
-    # Point P (par exemple une roue) et sa vitesse : v_P = v + ω × OP
-    p = (0.12, -0.14)
-    omega = 0.7
-    ax.plot(*P(*p), "o", color=RED, ms=7, zorder=6)
+    text(ax, (v[0] - 0.13, v[1] + 0.005), r"$\vec v=(v_x,\,v_y)$", color=GREEN, size=13)
+    # Point P (par exemple une roue) et sa vitesse : v_P = v + ω k ∧ OP
+    p = (0.14, -0.12)
+    omega = 0.75
+    ax.plot(*p, "o", color=RED, ms=7, zorder=6)
     arrow(ax, (0, 0), p, color=RED, lw=1.2, ls="--", size=10)
-    text(ax, (p[0] - 0.035, p[1] - 0.06), "$P\\,(x_P,\\,y_P)$", color=RED, size=13)
+    text(ax, (p[0] - 0.01, p[1] - 0.045), r"$P\,(x_P,\,y_P)$", color=RED, size=13)
     rot = (-omega * p[1], omega * p[0])
-    arrow(ax, p, (p[0] + v[0], p[1] + v[1]), color=GREEN, lw=1.4, size=11)
-    arrow(ax, (p[0] + v[0], p[1] + v[1]), (p[0] + v[0] + rot[0], p[1] + v[1] + rot[1]), color=BLUE, lw=1.4, size=11)
-    vp = (p[0] + v[0] + rot[0], p[1] + v[1] + rot[1])
+    tip_v = (p[0] + v[0], p[1] + v[1])
+    arrow(ax, p, tip_v, color=GREEN, lw=1.4, size=11)
+    vp = (tip_v[0] + rot[0], tip_v[1] + rot[1])
+    arrow(ax, tip_v, vp, color=BLUE, lw=1.4, size=11)
     arrow(ax, p, vp, color=RED, lw=2.8)
-    text(ax, (vp[0] + 0.035, vp[1] - 0.01), r"$\vec v_P$", color=RED, size=14)
-    text(ax, (p[0] + v[0] + rot[0] / 2 + 0.02, p[1] + v[1] + rot[1] / 2 - 0.05), r"$\omega\,\vec k\wedge\overrightarrow{OP}$",
-         color=BLUE, size=11)
-    text(ax, (-lx - 0.1, 0), r"$\vec v_P = (\,v_x-\omega\,y_P\,,\;\; v_y+\omega\,x_P\,)$", color=INK, size=15)
-    ax.set_xlim(-0.36, 0.36)
-    ax.set_ylim(-0.42, 0.48)
+    text(ax, (vp[0] + 0.045, vp[1] + 0.01), r"$\vec v_P$", color=RED, size=14)
+    text(ax, (tip_v[0] + 0.12, tip_v[1] + 0.03), r"$\omega\,\vec k\wedge\overrightarrow{OP}$", color=BLUE, size=11)
+    text(ax, (0.02, -hl - 0.07), r"$\vec v_P = (\,v_x-\omega\,y_P\,,\;\; v_y+\omega\,x_P\,)$", size=15)
+    ax.set_xlim(-0.3, 0.42)
+    ax.set_ylim(-0.37, 0.33)
     save(fig, "repere_robot.png")
 
 
-def wheel_rect(ax, center, length, width, angle_deg, rollers=None, roller_angle=0.0):
-    """Roue vue de dessus : rectangle `length` x `width` (en coordonnées du dessin), tourné de `angle_deg`."""
-    cx, cy = center
-    a = math.radians(angle_deg)
-    u = (math.cos(a), math.sin(a))  # sens de la longueur (plan de la roue)
-    w = (-math.sin(a), math.cos(a))  # sens de la largeur (axe de la roue)
-    corners = [(cx + su * length / 2 * u[0] + sw * width / 2 * w[0], cy + su * length / 2 * u[1] + sw * width / 2 * w[1])
-               for su, sw in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
-    ax.add_patch(Polygon(corners, closed=True, fc=WHEEL, ec=WHEEL, lw=1, zorder=3))
-    if rollers:
-        r = math.radians(angle_deg + roller_angle)
-        d = (math.cos(r), math.sin(r))
-        half = width / 2 / max(abs(math.sin(math.radians(roller_angle))), 0.5)
-        for k in range(rollers):
-            t = (k + 0.5) / rollers - 0.5
-            mx, my = cx + t * length * 0.9 * u[0], cy + t * length * 0.9 * u[1]
-            ax.plot([mx - half * d[0] * 0.8, mx + half * d[0] * 0.8], [my - half * d[1] * 0.8, my + half * d[1] * 0.8],
-                    color=ROLLER, lw=2.4, solid_capstyle="round", zorder=4)
+def wheel_box(ax, x, y, length=0.12, width=0.036, ghost=False):
+    """Roue vue de dessus, qui roule selon y : pleine, ou en transparence."""
+    if ghost:
+        ax.add_patch(FancyBboxPatch((x - width / 2, y - length / 2), width, length, boxstyle="round,pad=0,rounding_size=0.008",
+                                    fc="#F4F4F7", ec=GHOST, lw=1.4, ls="--", zorder=2))
+    else:
+        ax.add_patch(FancyBboxPatch((x - width / 2, y - length / 2), width, length, boxstyle="round,pad=0,rounding_size=0.008",
+                                    fc=WHEEL, ec=WHEEL, zorder=3))
 
 
-def mecanum_wheel(ax, x, y, top_roller, length=0.12, width=0.036, rollers=5):
-    """Roue mecanum vue de dessus, à la position robot (x, y), qui roule selon x.
-
-    `top_roller` donne l'orientation des galets du dessus dans le dessin : "\\" ou "/".
-    """
-    cx, cy = P(x, y)
-    ax.add_patch(FancyBboxPatch((cx - width / 2, cy - length / 2), width, length,
-                                boxstyle="round,pad=0,rounding_size=0.008", fc=WHEEL, ec=WHEEL, zorder=3))
-    sx = 1 if top_roller == "/" else -1
-    half = width * 0.62
-    for k in range(rollers):
-        my = cy + ((k + 0.5) / rollers - 0.5) * length * 0.86
-        ax.plot([cx - half, cx + half], [my - sx * half, my + sx * half], color=ROLLER, lw=2.6,
-                solid_capstyle="round", zorder=4)
+def roller(ax, x, y, slant, length=0.056, thickness=0.017, fc=ROLLER, ec="#8E8B83", lw=1.0, z=4):
+    """Un galet vu de dessus : un tonneau allongé selon son axe, incliné en « \\ » ou « / »."""
+    ax.add_patch(Ellipse((x, y), length, thickness, angle=45 if slant == "/" else -45, fc=fc, ec=ec, lw=lw, zorder=z))
 
 
 def mecanum():
-    """Base mecanum vue de dessus, galets du dessus en X."""
-    fig, ax = setup(7.2, 7.4)
-    lx, ly = 0.2, 0.17
-    ax.add_patch(FancyBboxPatch(P(-lx - 0.05, ly - 0.035), 2 * (ly - 0.035), 2 * lx + 0.1,
-                                boxstyle="round,pad=0,rounding_size=0.025", fc=CHASSIS, ec=MUTED, lw=1.5, zorder=1))
-    text(ax, (lx + 0.17, 0), "avant (caméra)", color=MUTED, size=11)
-    wheels = {
-        # nom : position (x, y) et galets du dessus vus de dessus ; ensemble, ils dessinent un X
-        "avant gauche": ((lx, ly), "\\"),
-        "avant droite": ((lx, -ly), "/"),
-        "arrière gauche": ((-lx, ly), "/"),
-        "arrière droite": ((-lx, -ly), "\\"),
-    }
-    for name, ((x, y), top_roller) in wheels.items():
-        mecanum_wheel(ax, x, y, top_roller)
-        text(ax, (x + (0.1 if x > 0 else -0.1), y), name, size=12)
-    # Repère et dimensions : les flèches partent du centre O
-    arrow(ax, (0, 0), (lx, 0), color=RED, lw=1.6, size=12)
-    arrow(ax, (0, 0), (0, ly), color=RED, lw=1.6, size=12)
-    text(ax, (lx / 2, -0.03), "$l_x$", color=RED, size=14)
-    text(ax, (0.03, ly / 2), "$l_y$", color=RED, size=14)
-    text(ax, (lx + 0.025, -0.02), "$x$", size=13)
-    text(ax, (0.02, ly + 0.035), "$y$", size=13)
-    text(ax, (-0.08, 0.0), "$O$", size=12)
-    rotation(ax, (0, 0), 0.05)
-    # Roue avant gauche : sens d'avance, et axe du galet au contact du sol (symétrique de celui du dessus)
-    x, y = wheels["avant gauche"][0]
-    arrow(ax, (x - 0.05, y + 0.06), (x + 0.05, y + 0.06), color=GREEN, lw=1.8, size=12)
-    text(ax, (x + 0.075, y + 0.06), "avance", color=GREEN, size=10.5)
-    s = 0.07
-    arrow(ax, (x - s / 2, y + s / 2), (x + s / 2, y - s / 2), color=BLUE, lw=2, ls="--", size=13, z=5)
-    text(ax, (x - 0.13, y + 0.205), r"$\vec u$ : axe du galet" + "\nau contact du sol\n(symétrique de celui\ndu dessus)",
-         color=BLUE, size=10.5, ha="left")
-    ax.set_xlim(-0.42, 0.37)
-    ax.set_ylim(-0.31, 0.45)
+    """Base mecanum : galets du dessus (en X), puis galet au contact du sol, croisé avec eux : ce qui pousse et ce qui glisse."""
+    fig, (top, ground) = plt.subplots(1, 2, figsize=(13, 8.4))
+    lx, ly = 0.16, 0.2  # demi-écarts des roues : gauche-droite (selon x) et avant-arrière (selon y)
+    wheels = {"avant gauche": (-lx, ly), "avant droite": (lx, ly), "arrière gauche": (-lx, -ly), "arrière droite": (lx, -ly)}
+    slant_top = {"avant gauche": "\\", "avant droite": "/", "arrière gauche": "/", "arrière droite": "\\"}
+    for ax, title in ((top, "Ce qu'on voit, de dessus :\nles galets du dessus forment un X"),
+                      (ground, "Ce qui touche le sol : le galet du dessous,\ncroisé avec ceux du dessus")):
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.add_patch(FancyBboxPatch((-lx + 0.06, -ly - 0.05), 2 * lx - 0.12, 2 * ly + 0.1,
+                                    boxstyle="round,pad=0,rounding_size=0.025", fc=CHASSIS, ec=MUTED, lw=1.5, zorder=1))
+        text(ax, (0, ly + 0.025), "avant", color=MUTED, size=11)
+        text(ax, (0, ly + 0.17), title, size=13, weight="bold")
+        ax.set_xlim(-0.37, 0.37)
+        ax.set_ylim(-0.56, 0.4)
+
+    # À gauche : ce qu'on voit sur le robot
+    for name, (x, y) in wheels.items():
+        wheel_box(top, x, y)
+        for k in range(4):
+            roller(top, x, y + (k - 1.5) * 0.029, slant_top[name])
+        text(top, (x * 1.65, y + (0.085 if y > 0 else -0.085)), name, size=11.5)
+    x, y = wheels["avant gauche"]
+    arrow(top, (x - 0.07, y - 0.05), (x - 0.07, y + 0.05), color=GREEN, lw=1.8, size=12)
+    text(top, (x - 0.08, y - 0.075), "la roue\navance\nselon $y$", color=GREEN, size=10, ha="right", va="top")
+    text(top, (0, -ly - 0.15), "Pour vérifier le montage de votre robot :\nvus de dessus, les galets du dessus doivent former un X.",
+         color=MUTED, size=10.5)
+
+    # À droite : ce qui se passe au sol ; les galets du dessus restent en gris clair, pour comparaison
+    faint = dict(fc="#F1F0EC", ec="#CFCDC6", lw=0.8, z=3)
+    for name, (x, y) in wheels.items():
+        wheel_box(ground, x, y, ghost=True)
+        for k in range(4):
+            roller(ground, x, y + (k - 1.5) * 0.029, slant_top[name], **faint)
+        slant = "/" if slant_top[name] == "\\" else "\\"  # galet du dessous : incliné dans l'autre sens
+        roller(ground, x, y, slant, length=0.075, thickness=0.024, fc="#DCE2F5", ec=BLUE, lw=1.4, z=4)
+        sx = 1 if slant == "/" else -1
+        u = (sx / np.sqrt(2), 1 / np.sqrt(2))
+        a = 0.047
+        arrow(ground, (x - a * u[0], y - a * u[1]), (x + a * u[0], y + a * u[1]), color=BLUE, lw=2.6, size=13, z=5,
+              style="<|-|>")
+        b = 0.045
+        ground.plot([x - b * u[1], x + b * u[1]], [y + b * u[0], y - b * u[0]], color=GHOST, lw=1.6, ls=(0, (3, 2)), zorder=5)
+        text(ground, (x + 0.06 * u[0] + (0.025 if x > 0 else -0.025), y + 0.06 * u[1] + 0.02), r"$\vec u$", color=BLUE, size=13)
+    axes(ground, length=0.1, size=13)
+    arrow(ground, (0, 0), (-lx, 0), color=RED, lw=1.4, size=11)
+    arrow(ground, (0, 0), (0, -ly), color=RED, lw=1.4, size=11)
+    text(ground, (-lx / 2, 0.025), "$l_x$", color=RED, size=13)
+    text(ground, (0.028, -ly / 2 - 0.02), "$l_y$", color=RED, size=13)
+    text(ground, (0.022, -0.028), "$O$", size=12)
+    rotation(ground, (0, 0), 0.045, label_angle=225)
+    # Légende
+    y0 = -ly - 0.12
+    roller(ground, -0.297, y0, "/", length=0.05, thickness=0.018, fc="#DCE2F5", ec=BLUE, lw=1.4, z=4)
+    text(ground, (-0.26, y0), r"galet du dessous, au contact du sol, d'axe $\vec u$ :"
+         "\nla roue ne peut pousser que dans cet axe (frottement)", color=BLUE, size=10.5, ha="left")
+    roller(ground, -0.297, y0 - 0.09, "\\", length=0.05, thickness=0.018, **faint)
+    text(ground, (-0.26, y0 - 0.09), "galets du dessus, pour comparaison : quand la roue\n"
+         "fait un demi-tour, un galet du dessus passe dessous,\net son inclinaison s'inverse, d'où le croisement",
+         color=MUTED, size=10.5, ha="left")
+    ground.plot([-0.32, -0.275], [y0 - 0.19, y0 - 0.19], color=GHOST, lw=1.6, ls=(0, (3, 2)), zorder=5)
+    text(ground, (-0.26, y0 - 0.19), "perpendiculairement à $\\vec u$, le galet roule :\nla roue glisse librement",
+         color=MUTED, size=10.5, ha="left")
+    fig.subplots_adjust(wspace=0.04)
     save(fig, "mecanum.png")
+
+
+def omni_wheel(ax, center, d, length=0.1, width=0.034):
+    """Roue holonome vue de dessus, qui roule selon d (dessinée comme une roue double du commerce).
+
+    Deux rangées décalées de galets courts et larges : vus de dessus, ce sont des barrettes en
+    travers de la roue. Chacun tourne pourtant autour d'un axe qui suit la jante, selon d : la roue
+    pousse selon d et glisse selon son axe.
+    """
+    cx, cy = center
+    n = (-d[1], d[0])
+    corners = [(cx + su * length / 2 * d[0] + sn * width / 2 * n[0], cy + su * length / 2 * d[1] + sn * width / 2 * n[1])
+               for su, sn in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    ax.add_patch(plt.Polygon(corners, closed=True, fc=WHEEL, ec=WHEEL, lw=1, zorder=3))
+    across = np.degrees(np.arctan2(n[1], n[0]))
+    for row, offset in ((0, -width / 4), (1, width / 4)):
+        for k in range(4):
+            t = (k + 0.5 * row) / 4 - 0.43
+            ax.add_patch(Ellipse((cx + t * length * d[0] + offset * n[0], cy + t * length * d[1] + offset * n[1]),
+                                 0.0165, 0.011, angle=across, fc=ROLLER, ec="#8E8B83", lw=0.8, zorder=4))
+
+
+def omni_side_view(fig, rect):
+    """Encart : une roue holonome vue de côté ; l'axe de chaque galet suit la jante."""
+    ax = fig.add_axes(rect)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.add_patch(Circle((0, 0), 0.78, fc=WHEEL, ec=WHEEL, zorder=2))
+    for k in range(8):
+        a = 2 * np.pi * k / 8
+        c, t = (np.cos(a), np.sin(a)), (-np.sin(a), np.cos(a))
+        ax.plot([c[0] - 0.36 * t[0], c[0] + 0.36 * t[0]], [c[1] - 0.36 * t[1], c[1] + 0.36 * t[1]], color="#E8E6E0",
+                lw=1.6, zorder=3)
+        ax.add_patch(Ellipse(c, 0.5, 0.46, angle=np.degrees(a) + 90, fc=ROLLER, ec="#8E8B83", lw=0.9, zorder=4))
+        ax.plot([c[0] - 0.12 * t[0], c[0] + 0.12 * t[0]], [c[1] - 0.12 * t[1], c[1] + 0.12 * t[1]], color="#6E6B64",
+                lw=1.2, zorder=5)
+    ax.add_patch(Circle((0, 0), 0.14, fc=CHASSIS, ec=MUTED, lw=1, zorder=4))
+    ax.text(0, -1.7, "roue holonome vue de côté :\nchaque galet tourne autour\nd'un axe qui suit la jante",
+            ha="center", va="center", fontsize=9.5, color=MUTED)
+    ax.set_xlim(-1.45, 1.45)
+    ax.set_ylim(-2.15, 1.4)
 
 
 def omni3():
     """Base à 3 roues holonomes, vue de dessus."""
-    fig, ax = setup(6.8, 6.8)
+    fig, ax = setup(6.8, 7.0)
     radius = 0.2
     ax.add_patch(Circle((0, 0), radius + 0.035, fc=CHASSIS, ec=MUTED, lw=1.5, zorder=1))
-    text(ax, (radius + 0.09, 0), "avant", color=MUTED, size=11)
+    text(ax, (0, radius + 0.06), "avant", color=MUTED, size=11)
     axes(ax, length=0.11)
-    rotation(ax, (0, 0), 0.05)
-    for k, theta_deg in enumerate((60, 180, 300), start=1):
-        th = math.radians(theta_deg)
-        x, y = radius * math.cos(th), radius * math.sin(th)
-        # La roue est tangente au cercle : elle roule selon d = (-sin θ, cos θ)
-        d = (-math.sin(th), math.cos(th))
-        angle_plot = math.degrees(math.atan2(*reversed(P(*d))))
-        wheel_rect(ax, P(x, y), 0.1, 0.032, angle_plot, rollers=5, roller_angle=90)
-        arrow(ax, (x + 0.06 * math.cos(th), y + 0.06 * math.sin(th)),
-              (x + 0.06 * math.cos(th) + 0.1 * d[0], y + 0.06 * math.sin(th) + 0.1 * d[1]), color=GREEN, lw=2, size=13)
-        text(ax, (x + 0.06 * math.cos(th) + 0.13 * d[0] + 0.03 * math.cos(th),
-                  y + 0.06 * math.sin(th) + 0.13 * d[1] + 0.03 * math.sin(th)), f"$\\vec d_{k}$", color=GREEN, size=14)
-        text(ax, (1.42 * x, 1.42 * y), f"roue {k}", size=12)
+    rotation(ax, (0, 0), 0.045, label_angle=225)
+    for k, theta_deg in enumerate((30, 150, 270), start=1):
+        th = np.radians(theta_deg)
+        x, y = radius * np.cos(th), radius * np.sin(th)
+        d = (-np.sin(th), np.cos(th))  # tangente au cercle : la roue roule (et pousse) selon d
+        omni_wheel(ax, (x, y), d)
+        ox, oy = x + 0.06 * np.cos(th), y + 0.06 * np.sin(th)
+        arrow(ax, (ox, oy), (ox + 0.1 * d[0], oy + 0.1 * d[1]), color=GREEN, lw=2, size=13)
+        text(ax, (ox + 0.13 * d[0] + 0.03 * np.cos(th), oy + 0.13 * d[1] + 0.03 * np.sin(th)), f"$\\vec d_{k}$",
+             color=GREEN, size=14)
+        if k != 3:
+            text(ax, (1.5 * x - 0.03 * d[0], 1.5 * y - 0.03 * d[1]), f"roue {k}", size=12)
+        else:
+            text(ax, (0.1, -radius - 0.03), "roue 3", size=12, ha="left")
+    # La roue 3 glisse librement le long de son axe (perpendiculairement à d)
+    ax.plot([0, 0], [-radius - 0.055, -radius + 0.055], color=GHOST, lw=1.6, ls=(0, (3, 2)), zorder=5)
+    text(ax, (-0.035, -radius - 0.075), "glisse", color=MUTED, size=10, ha="right")
+    text(ax, (0.0, -radius - 0.155), "la roue 3 pousse selon $\\vec d_3$\net glisse selon son axe", color=MUTED, size=10)
     # Angle θ1 et rayon R
-    ax.add_patch(Arc((0, 0), 0.16, 0.16, theta1=90, theta2=90 + 60, color=RED, lw=1.6, zorder=4))
-    text(ax, (0.085 * math.cos(math.radians(30)), 0.085 * math.sin(math.radians(30))), r"$\theta_1$", color=RED, size=13)
-    th = math.radians(300)
-    arrow(ax, (0, 0), (radius * math.cos(th), radius * math.sin(th)), color=RED, lw=1.3, ls="--", size=10)
-    text(ax, (0.5 * radius * math.cos(th) + 0.02, 0.5 * radius * math.sin(th) - 0.04), "$R$", color=RED, size=14)
-    ax.set_xlim(-0.36, 0.36)
-    ax.set_ylim(-0.34, 0.36)
+    ax.add_patch(Arc((0, 0), 0.18, 0.18, theta1=0, theta2=30, color=RED, lw=1.6, zorder=4))
+    text(ax, (0.115 * np.cos(np.radians(15)), 0.115 * np.sin(np.radians(15))), r"$\theta_1$", color=RED, size=13)
+    th = np.radians(150)
+    arrow(ax, (0, 0), (radius * np.cos(th), radius * np.sin(th)), color=RED, lw=1.3, ls="--", size=10)
+    text(ax, (0.5 * radius * np.cos(th) - 0.005, 0.5 * radius * np.sin(th) + 0.03), "$R$", color=RED, size=14)
+    ax.set_xlim(-0.37, 0.37)
+    ax.set_ylim(-0.42, 0.34)
+    omni_side_view(fig, [0.0, 0.02, 0.24, 0.27])
     save(fig, "holonome3.png")
 
 

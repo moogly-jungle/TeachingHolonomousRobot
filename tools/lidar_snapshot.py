@@ -8,12 +8,12 @@ comme les mesure le lidar.
 Usage : python3 tools/lidar_snapshot.py [--port /dev/ttyUSB0] [--tours 5] [--image lidar.png]
 """
 import argparse
-import math
 import statistics
 import sys
 from pathlib import Path
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")  # pas besoin d'écran
 import matplotlib.pyplot as plt  # noqa: E402
@@ -46,7 +46,7 @@ def main():
     ax.set_theta_zero_location("N")
     ax.set_theta_direction(-1)
     for scan in scans:
-        ax.scatter([math.radians(a) for a in scan.angles], scan.distances, s=2, c="tab:blue")
+        ax.scatter(np.radians(scan.angles), scan.distances, s=2, c="tab:blue")
     ax.plot(0, 0, "r^", markersize=10)
     ax.set_rmax(min(max(distances) * 1.05, 10))
     ax.set_title(f"Lidar : {len(scans)} tours superposés (distances en m)")

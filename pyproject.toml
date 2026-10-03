@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Bibliothèque Python du robot holonome d'enseignement (dépôt TeachingHolonomousRobot)"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["pyserial"]
+dependencies = ["numpy", "pyserial"]
+
+[project.optional-dependencies]
+motors = ["pypot"]
 
 [tool.setuptools]
 packages = ["holorobot"]
