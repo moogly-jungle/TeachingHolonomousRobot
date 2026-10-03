@@ -101,8 +101,8 @@ def status(ids=None, port=PORT, baudrate=BAUDRATE):
         if not ids:
             return {}
         columns = {
-            "model": dict(zip(ids, io.get_model(ids))),
-            "mode": dict(zip(ids, io.get_control_mode(ids))),
+            "model": _read(io.get_model, ids),
+            "mode": _read(io.get_control_mode, ids),
             "position": _read(io.get_present_position, ids),
             "speed": _read(io.get_present_speed, ids),
             "load": _read(io.get_present_load, ids),
@@ -178,6 +178,11 @@ class Motors:
         self._io = self._bus.io
         try:
             found = self._io.scan(list(SCAN_IDS if ids is None else ids))
+            for _ in range(2):  # une réponse perdue ne doit pas faire croire à un moteur absent
+                missing = [] if ids is None else sorted(set(ids) - set(found))
+                if not missing:
+                    break
+                found += self._io.scan(missing)
             if not found:
                 raise RuntimeError(
                     "Aucun moteur ne répond : les moteurs sont-ils alimentés (batterie) ? "
@@ -185,8 +190,8 @@ class Motors:
             if ids is not None and set(found) != set(ids):
                 raise RuntimeError(f"Moteurs absents du bus : {sorted(set(ids) - set(found))}")
             self.ids = sorted(found)
-            self.models = dict(zip(self.ids, self._io.get_model(self.ids)))
-            self.modes = dict(zip(self.ids, self._io.get_control_mode(self.ids)))
+            self.models = _read(self._io.get_model, self.ids)
+            self.modes = _read(self._io.get_control_mode, self.ids)
             self._speeds = {i: 0.0 for i in self.ids}  # dernières consignes de vitesse (mode roue)
             self._last_command = time.monotonic()
             if wheel_mode:
@@ -340,11 +345,12 @@ class Motors:
             self._io.set_goal_position(goals)
 
     def move_to(self, positions, speed=None, timeout=10.0, tolerance=3.0):
-        """Comme set_positions(), mais attend que les moteurs soient arrivés, à `tolerance` degrés près.
+        """Comme set_positions(), mais attend que les moteurs soient arrivés, à `tolerance` degrés près, et arrêtés.
 
-        Un moteur arrêté garde souvent 1 à 2° d'écart avec sa consigne : d'où la tolérance de 3°.
+        Un moteur arrêté garde souvent un petit écart avec sa consigne, de l'ordre du degré : d'où la
+        tolérance de 3°.
 
-        Renvoie les positions atteintes. Lève TimeoutError s'ils n'y sont pas au bout de `timeout`
+        Renvoie les positions atteintes, moteurs arrêtés. Lève TimeoutError s'ils n'y sont pas au bout de `timeout`
         secondes (bloqués par un obstacle ?). En cas d'interruption (Ctrl-C, « Interrupt Kernel »)
         ou d'erreur, les moteurs s'arrêtent et se tiennent là où ils sont.
         """
@@ -352,6 +358,7 @@ class Motors:
         goals = self._goals(positions)
         end = time.monotonic() + timeout
         failures = 0
+        previous = None  # positions lues au tour précédent : pour savoir si les moteurs bougent encore
         try:
             while True:
                 try:
@@ -363,8 +370,11 @@ class Motors:
                         raise
                     time.sleep(0.02)
                     continue
-                if all(abs((current[i] - goal + 180) % 360 - 180) <= tolerance for i, goal in goals.items()):
+                near = all(abs((current[i] - goal + 180) % 360 - 180) <= tolerance for i, goal in goals.items())
+                stopped = previous is not None and all(abs(current[i] - previous[i]) <= 0.2 for i in goals)
+                if near and (stopped or time.monotonic() > end):
                     return current
+                previous = current
                 if time.monotonic() > end:
                     raise TimeoutError(f"Positions non atteintes en {timeout} s : visées {goals}, "
                                        f"atteintes {current}")
@@ -437,8 +447,8 @@ class Motors:
     # Fermeture et sécurité
 
     def close(self, hold=False):
-        """Libère le bus. Arrête les moteurs et coupe leur couple ; avec hold=True, ils s'arrêtent mais
-        gardent leur couple : une roue freine, un moteur en mode articulation reste en position."""
+        """Libère le bus. Arrête les moteurs et coupe leur couple ; avec hold=True, ils gardent leur couple :
+        les roues s'arrêtent en freinant, les moteurs en mode articulation gardent leur consigne et s'y tiennent."""
         if self._closed:
             return
         self._closing.set()
@@ -446,7 +456,9 @@ class Motors:
         with self._lock:
             try:
                 if hold:
-                    self.stop()
+                    wheel = [i for i in self.ids if self.modes[i] == "wheel"]
+                    if wheel:
+                        self.set_speeds(dict.fromkeys(wheel, 0))
                 else:
                     self.release()
             finally:

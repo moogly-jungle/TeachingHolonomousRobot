@@ -356,9 +356,41 @@ def test_close_can_keep_the_motors_holding():
     m.set_joint_mode([1])
     m.move_to({1: 40})
     m.set_speeds({4: 90})
+    before = len(io.events)
     m.close(hold=True)
     assert io.closed and 1 in io.torque and io.speeds[4] == 0  # roue arrêtée, articulation tenue
     assert ("position", {1: 40.0}) in io.events
+    assert not any(e[0] == "position" for e in io.events[before:])  # sa consigne n'est pas changée
+
+
+def test_move_to_waits_until_the_motor_stops():
+    io = fake_bus()
+    with motors.Motors() as m:
+        m.set_joint_mode([1])
+        trajectory = [10.0, 25.0, 38.0, 39.4, 39.8, 39.8]  # un vrai moteur ralentit en arrivant
+
+        def gradual_read(ids):
+            return tuple(trajectory.pop(0) if trajectory else 39.8 for _ in ids)
+
+        io.get_present_position = gradual_read
+        assert m.move_to({1: 40}) == {1: 39.8}  # pas 38.0 : déjà à moins de 3°, mais encore en mouvement
+
+
+def test_a_lost_ping_does_not_hide_a_motor():
+    io = fake_bus()
+    real_scan = io.scan
+    lost = [4]
+
+    def lossy_scan(ids):  # le premier ping du moteur 4 se perd
+        found = real_scan(ids)
+        if 4 in found and lost:
+            lost.pop()
+            found.remove(4)
+        return found
+
+    io.scan = lossy_scan
+    with motors.Motors(ids=[1, 4], wheel_mode=False) as m:
+        assert m.ids == [1, 4]
 
 
 if __name__ == "__main__":

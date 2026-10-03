@@ -130,14 +130,14 @@ Ouvre le bus et cherche les moteurs : ceux de `ids`, ou de 0 à 20. Lève une `R
 | `set_speeds({id: vitesse})` | vitesses en °/s, valables `watchdog` secondes ; les moteurs absents gardent leur consigne |
 | `run({id: vitesse}, duration)` | fait tourner pendant `duration` s, puis arrête ; Ctrl-C ou *Interrupt Kernel* arrête aussi |
 | `set_positions({id: angle}, speed=None)` | mode articulation : positions visées en degrés ; ne bloque pas |
-| `move_to({id: angle}, speed=None, timeout=10, tolerance=3)` | comme `set_positions()`, mais attend l'arrivée (à `tolerance` degrés près) et renvoie les positions atteintes |
+| `move_to({id: angle}, speed=None, timeout=10, tolerance=3)` | comme `set_positions()`, mais attend que les moteurs soient arrivés (à `tolerance` degrés près) et arrêtés, puis renvoie les positions atteintes |
 | `stop()` | arrête tout : les roues freinent (couple actif), les moteurs en mode articulation se tiennent là où ils sont |
 | `release()` | arrête et coupe le couple : les moteurs tournent librement à la main |
 | `get_speeds(ids=None)`, `get_positions(ids=None)` | vitesses (°/s) et positions (degrés, de −180 à 180) mesurées, de tous les moteurs ou de ceux de `ids` |
 | `get_temperatures(ids=None)`, `get_voltages(ids=None)` | températures (°C) et tension d'alimentation (V) |
 | `get_loads(ids=None)` | charge, en % du couple maximal : une roue qui force ou qui est bloquée |
 | `change_id(ancien, nouveau)` | change l'identifiant d'un moteur, gardé en mémoire par le moteur ; le nouveau doit être libre, de 0 à 252 |
-| `close(hold=False)` | arrête, coupe le couple et libère le bus ; avec `hold=True`, les moteurs gardent leur couple : une roue freine, un moteur en mode articulation reste en position |
+| `close(hold=False)` | arrête, coupe le couple et libère le bus ; avec `hold=True`, les moteurs gardent leur couple : les roues s'arrêtent en freinant, les moteurs en mode articulation gardent leur consigne et s'y tiennent |
 
 `with Motors() as motors:` appelle `close()` en sortant, même en cas d'erreur.
 
