@@ -42,7 +42,7 @@ Les adresses 192.168.9.x sont celles qu'a données le routeur (DHCP), pas des ad
 
 ```
 holorobot/      bibliothèque des étudiants : lidar.py, motors.py
-notebooks/      carnets copiés chez les étudiants : decouverte_moteurs.ipynb, tableau_de_bord.ipynb
+notebooks/      carnets copiés chez les étudiants : locomotion_holonome.ipynb, tableau_de_bord.ipynb
 docs/           moteurs.md, lidar.md, img/ (schémas produits par img/schemas.py), ce mémo
 tools/          battery.py, wheel_test.py, dxl_scan.py, lidar_snapshot.py, lidar_stress.py, camera_snapshot.py
 tests/          test_motors.py (22 tests, faux bus), test_lidar.py (14 tests, enregistrement réel dans tests/data)
@@ -65,7 +65,7 @@ Tests : `python3 tests/test_motors.py` et `python3 tests/test_lidar.py` (il faut
 
 ### 4.3 Les carnets
 
-- `decouverte_moteurs.ipynb` : des moteurs à la fonction de pilotage (vx, vy, ω) → vitesses des roues, roues mecanum et holonomes, contrôle en position (idée de tourelle pan-tilt). Repère du robot : x à droite, y devant, ω positif dans le sens trigonométrique vu de dessus.
+- `locomotion_holonome.ipynb` : des moteurs à la fonction de pilotage (vx, vy, ω) → vitesses des roues, roues mecanum et holonomes, contrôle en position (idée de tourelle pan-tilt). Repère du robot : x à droite, y devant, ω positif dans le sens trigonométrique vu de dessus.
 - `tableau_de_bord.ipynb` : batterie, moteurs (liste, températures, changement d'identifiant, curseur de vitesse, curseur de position, relâcher), lidar et segments, caméra et YOLO. **Chaque cellule est indépendante** : elle ouvre ce dont elle a besoin et le referme. Les curseurs passent par des tâches de fond : le bouton *Arrêt* les arrête, pas *Interrupt Kernel*. Tant qu'une roue tourne au curseur, les autres cellules des moteurs répondent « bus déjà utilisé ».
 - `mon_code.ipynb` : carnet vide (une cellule) pour le code des groupes. Il n'est **pas dans le dépôt** : il est déposé sur chaque robot (et dans l'image des cartes).
 

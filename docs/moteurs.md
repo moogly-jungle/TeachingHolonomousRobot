@@ -10,7 +10,7 @@ with Motors() as motors:               # ouvre le bus, trouve les moteurs, les m
     motors.run({4: 90}, duration=2)    # le moteur 4 fait tourner sa roue à 90 °/s pendant 2 s
 ```
 
-Le carnet **`decouverte_moteurs.ipynb`** (dossier `notebooks`) reprend tout ceci pas à pas, jusqu'au pilotage du robot.
+Le carnet **`locomotion_holonome.ipynb`** (dossier `notebooks`) reprend tout ceci pas à pas, jusqu'au pilotage du robot.
 
 ## Notions
 

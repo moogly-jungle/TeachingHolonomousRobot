@@ -118,7 +118,7 @@ def roller(ax, x, y, slant, length=0.056, thickness=0.017, fc=ROLLER, ec="#8E8B8
 
 def mecanum():
     """Base mecanum : galets du dessus (en X), puis galet au contact du sol, croisé avec eux : ce qui pousse et ce qui glisse."""
-    fig, (top, ground) = plt.subplots(1, 2, figsize=(13, 8.4))
+    fig, (top, ground) = plt.subplots(1, 2, figsize=(13, 9.55))
     lx, ly = 0.16, 0.2  # demi-écarts des roues : gauche-droite (selon x) et avant-arrière (selon y)
     wheels = {"avant gauche": (-lx, ly), "avant droite": (lx, ly), "arrière gauche": (-lx, -ly), "arrière droite": (lx, -ly)}
     slant_top = {"avant gauche": "\\", "avant droite": "/", "arrière gauche": "/", "arrière droite": "\\"}
@@ -129,9 +129,9 @@ def mecanum():
         ax.add_patch(FancyBboxPatch((-lx + 0.06, -ly - 0.05), 2 * lx - 0.12, 2 * ly + 0.1,
                                     boxstyle="round,pad=0,rounding_size=0.025", fc=CHASSIS, ec=MUTED, lw=1.5, zorder=1))
         text(ax, (0, ly + 0.025), "avant", color=MUTED, size=11)
-        text(ax, (0, ly + 0.17), title, size=13, weight="bold")
+        text(ax, (0, ly + 0.28), title, size=13, weight="bold")  # assez haut pour l'exemple de la roue avant gauche
         ax.set_xlim(-0.37, 0.37)
-        ax.set_ylim(-0.56, 0.4)
+        ax.set_ylim(-0.56, 0.53)
 
     # À gauche : ce qu'on voit sur le robot
     for name, (x, y) in wheels.items():
@@ -154,13 +154,19 @@ def mecanum():
         slant = "/" if slant_top[name] == "\\" else "\\"  # galet du dessous : incliné dans l'autre sens
         roller(ground, x, y, slant, length=0.075, thickness=0.024, fc="#DCE2F5", ec=BLUE, lw=1.4, z=4)
         sx = 1 if slant == "/" else -1
-        u = (sx / np.sqrt(2), 1 / np.sqrt(2))
-        a = 0.047
-        arrow(ground, (x - a * u[0], y - a * u[1]), (x + a * u[0], y + a * u[1]), color=BLUE, lw=2.6, size=13, z=5,
-              style="<|-|>")
+        u = (sx / np.sqrt(2), 1 / np.sqrt(2))  # vecteur unitaire de l'axe du galet, orienté vers l'avant
         b = 0.045
         ground.plot([x - b * u[1], x + b * u[1]], [y + b * u[0], y - b * u[0]], color=GHOST, lw=1.6, ls=(0, (3, 2)), zorder=5)
-        text(ground, (x + 0.06 * u[0] + (0.025 if x > 0 else -0.025), y + 0.06 * u[1] + 0.02), r"$\vec u$", color=BLUE, size=13)
+        # Le vecteur u_i part du centre de la roue, au-dessus du point de contact avec le sol
+        a = 0.068
+        tip = (x + a * u[0], y + a * u[1])
+        ground.plot(x, y, "o", color=BLUE, ms=4.5, zorder=6)
+        arrow(ground, (x, y), tip, color=BLUE, lw=2.6, size=15, z=5)
+        if y > 0:  # roues avant : la flèche pointe vers le coin du châssis, l'étiquette va au-dessus
+            label = (tip[0], tip[1] + 0.026)
+        else:  # roues arrière : la flèche pointe vers l'extérieur, l'étiquette la prolonge
+            label = (tip[0] + 0.02 * u[0], tip[1] + 0.02 * u[1] + 0.012)
+        text(ground, label, r"$\vec u_i$", color=BLUE, size=14)
     axes(ground, length=0.1, size=13)
     arrow(ground, (0, 0), (-lx, 0), color=RED, lw=1.4, size=11)
     arrow(ground, (0, 0), (0, -ly), color=RED, lw=1.4, size=11)
@@ -168,17 +174,36 @@ def mecanum():
     text(ground, (0.028, -ly / 2 - 0.02), "$l_y$", color=RED, size=13)
     text(ground, (0.022, -0.028), "$O$", size=12)
     rotation(ground, (0, 0), 0.045, label_angle=225)
+    # Exemple sur la roue avant gauche, pour une vitesse v_Pi quelconque du centre de la roue : r ω_i y a la
+    # même composante selon u_i que v_Pi, et leur différence, perpendiculaire à u_i, est absorbée par la
+    # rotation du galet. Ici v_Pi va vers le haut, près du nord-ouest : presque perpendiculaire à u_i, il
+    # ne fait tourner la roue que lentement.
+    c = np.array(wheels["avant gauche"])
+    u = np.array([1.0, 1.0]) / np.sqrt(2)
+    v_p = 0.2 * np.array([np.cos(np.radians(115)), np.sin(np.radians(115))])
+    roll = np.array([0.0, (v_p @ u) / u[1]])  # r ω_i y, avec r ω_i = (v_Pi · u_i) / (y · u_i)
+    arrow(ground, c, c + v_p, color=RED, lw=2.2, size=13, z=6)
+    arrow(ground, c, c + roll, color=GREEN, lw=2.2, size=13, z=6)
+    d = (v_p - roll) / np.linalg.norm(v_p - roll)
+    end = c + v_p - 0.012 * d  # s'arrête juste avant la pointe de v_Pi
+    ground.plot([c[0] + roll[0], end[0] - 0.012 * d[0]], [c[1] + roll[1], end[1] - 0.012 * d[1]], color=MUTED, lw=1.3,
+                ls=(0, (3, 2)), zorder=5)
+    arrow(ground, end - 0.014 * d, end, color=MUTED, lw=1.3, size=11, z=5)
+    text(ground, c + v_p + (-0.022, 0.022), r"$\vec v_{P_i}$", color=RED, size=13)
+    text(ground, c + roll + (0.035, 0.022), r"$r\,\omega_i\,\vec y$", color=GREEN, size=13)
+    text(ground, c + (v_p + roll) / 2 + (0.05, 0.03), r"$\vec v_{P_i} - r\,\omega_i\,\vec y$", color=MUTED, size=11)
+    text(ground, (-0.355, 0.29), "exemple sur\ncette roue", color=MUTED, size=10, ha="left")
     # Légende
     y0 = -ly - 0.12
     roller(ground, -0.297, y0, "/", length=0.05, thickness=0.018, fc="#DCE2F5", ec=BLUE, lw=1.4, z=4)
-    text(ground, (-0.26, y0), r"galet du dessous, au contact du sol, d'axe $\vec u$ :"
+    text(ground, (-0.26, y0), r"galet du dessous, au contact du sol, d'axe $\vec u_i$ :"
          "\nla roue ne peut pousser que dans cet axe (frottement)", color=BLUE, size=10.5, ha="left")
     roller(ground, -0.297, y0 - 0.09, "\\", length=0.05, thickness=0.018, **faint)
     text(ground, (-0.26, y0 - 0.09), "galets du dessus, pour comparaison : quand la roue\n"
          "fait un demi-tour, un galet du dessus passe dessous,\net son inclinaison s'inverse, d'où le croisement",
          color=MUTED, size=10.5, ha="left")
     ground.plot([-0.32, -0.275], [y0 - 0.19, y0 - 0.19], color=GHOST, lw=1.6, ls=(0, (3, 2)), zorder=5)
-    text(ground, (-0.26, y0 - 0.19), "perpendiculairement à $\\vec u$, le galet roule :\nla roue glisse librement",
+    text(ground, (-0.26, y0 - 0.19), "perpendiculairement à $\\vec u_i$, le galet roule :\nla roue glisse librement",
          color=MUTED, size=10.5, ha="left")
     fig.subplots_adjust(wspace=0.04)
     save(fig, "mecanum.png")
@@ -187,37 +212,42 @@ def mecanum():
 def omni_wheel(ax, center, d, length=0.1, width=0.034):
     """Roue holonome vue de dessus, qui roule selon d (dessinée comme une roue double du commerce).
 
-    Deux rangées décalées de galets courts et larges : vus de dessus, ce sont des barrettes en
-    travers de la roue. Chacun tourne pourtant autour d'un axe qui suit la jante, selon d : la roue
-    pousse selon d et glisse selon son axe.
+    Deux rangées décalées de galets : l'axe de chaque galet suit la jante, donc vus de dessus ce
+    sont des fuseaux allongés selon d. La roue pousse selon d et glisse selon son axe.
     """
     cx, cy = center
     n = (-d[1], d[0])
     corners = [(cx + su * length / 2 * d[0] + sn * width / 2 * n[0], cy + su * length / 2 * d[1] + sn * width / 2 * n[1])
                for su, sn in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     ax.add_patch(plt.Polygon(corners, closed=True, fc=WHEEL, ec=WHEEL, lw=1, zorder=3))
-    across = np.degrees(np.arctan2(n[1], n[0]))
-    for row, offset in ((0, -width / 4), (1, width / 4)):
+    along = np.degrees(np.arctan2(d[1], d[0]))
+    step = 0.23 * length  # pas entre deux galets d'une rangée ; la seconde rangée est décalée d'un demi-pas
+    for offset, shift in ((-width / 4, -1.75), (width / 4, -1.25)):
         for k in range(4):
-            t = (k + 0.5 * row) / 4 - 0.43
-            ax.add_patch(Ellipse((cx + t * length * d[0] + offset * n[0], cy + t * length * d[1] + offset * n[1]),
-                                 0.0165, 0.011, angle=across, fc=ROLLER, ec="#8E8B83", lw=0.8, zorder=4))
+            t = (k + shift) * step
+            ax.add_patch(Ellipse((cx + t * d[0] + offset * n[0], cy + t * d[1] + offset * n[1]),
+                                 0.2 * length, 0.25 * width, angle=along, fc=ROLLER, ec="#8E8B83", lw=0.8, zorder=4))
 
 
 def omni_side_view(fig, rect):
-    """Encart : une roue holonome vue de côté ; l'axe de chaque galet suit la jante."""
+    """Encart : une roue holonome double vue de côté ; l'axe de chaque galet suit la jante.
+
+    Deux rangées de 5 galets en tonneau, décalées : ceux de la rangée de devant sont en clair, ceux de
+    derrière, plus sombres, apparaissent entre eux.
+    """
     ax = fig.add_axes(rect)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.add_patch(Circle((0, 0), 0.78, fc=WHEEL, ec=WHEEL, zorder=2))
-    for k in range(8):
-        a = 2 * np.pi * k / 8
+    for k in range(10):
+        a = 2 * np.pi * k / 10 + np.pi / 2
         c, t = (np.cos(a), np.sin(a)), (-np.sin(a), np.cos(a))
-        ax.plot([c[0] - 0.36 * t[0], c[0] + 0.36 * t[0]], [c[1] - 0.36 * t[1], c[1] + 0.36 * t[1]], color="#E8E6E0",
-                lw=1.6, zorder=3)
-        ax.add_patch(Ellipse(c, 0.5, 0.46, angle=np.degrees(a) + 90, fc=ROLLER, ec="#8E8B83", lw=0.9, zorder=4))
-        ax.plot([c[0] - 0.12 * t[0], c[0] + 0.12 * t[0]], [c[1] - 0.12 * t[1], c[1] + 0.12 * t[1]], color="#6E6B64",
-                lw=1.2, zorder=5)
+        front = k % 2 == 0
+        ax.add_patch(Ellipse(c, 0.66, 0.38, angle=np.degrees(a) + 90, fc=ROLLER if front else "#A9A69D",
+                             ec="#8E8B83" if front else "#7E7B74", lw=0.9, zorder=4 if front else 3))
+        if front:  # l'axe du galet, le long de la jante
+            ax.plot([c[0] - 0.2 * t[0], c[0] + 0.2 * t[0]], [c[1] - 0.2 * t[1], c[1] + 0.2 * t[1]], color="#6E6B64",
+                    lw=1.2, zorder=5)
     ax.add_patch(Circle((0, 0), 0.14, fc=CHASSIS, ec=MUTED, lw=1, zorder=4))
     ax.text(0, -1.7, "roue holonome vue de côté :\nchaque galet tourne autour\nd'un axe qui suit la jante",
             ha="center", va="center", fontsize=9.5, color=MUTED)
@@ -244,12 +274,30 @@ def omni3():
              color=GREEN, size=14)
         if k != 3:
             text(ax, (1.5 * x - 0.03 * d[0], 1.5 * y - 0.03 * d[1]), f"roue {k}", size=12)
-        else:
-            text(ax, (0.1, -radius - 0.03), "roue 3", size=12, ha="left")
+        else:  # à gauche de la roue : la droite est prise par l'exemple de vitesse
+            text(ax, (-0.065, -radius + 0.035), "roue 3", size=12, ha="right")
     # La roue 3 glisse librement le long de son axe (perpendiculairement à d)
     ax.plot([0, 0], [-radius - 0.055, -radius + 0.055], color=GHOST, lw=1.6, ls=(0, (3, 2)), zorder=5)
     text(ax, (-0.035, -radius - 0.075), "glisse", color=MUTED, size=10, ha="right")
     text(ax, (0.0, -radius - 0.155), "la roue 3 pousse selon $\\vec d_3$\net glisse selon son axe", color=MUTED, size=10)
+    # Exemple sur la roue 3, pour une vitesse v_P3 quelconque du centre de la roue : seule sa projection sur d_3,
+    # r ω_3 d_3, fait tourner la roue ; le reste, le long de l'axe de la roue, est absorbé par les galets.
+    c = np.array([0.0, -radius])
+    d3 = np.array([1.0, 0.0])
+    v_p = 0.15 * np.array([np.cos(np.radians(50)), np.sin(np.radians(50))])
+    g = c + (v_p @ d3) * d3  # pointe de r ω_3 d_3, avec r ω_3 = d_3 · v_P3
+    ax.plot(*c, "o", color=INK, ms=4, zorder=7)
+    arrow(ax, c, c + v_p, color=RED, lw=2.2, size=13, z=6)
+    arrow(ax, c, g, color=GREEN, lw=2.2, size=13, z=6)
+    s = 0.016  # angle droit : r ω_3 d_3 est la projection de v_P3 sur d_3
+    ax.plot([g[0] - s, g[0] - s, g[0]], [g[1], g[1] + s, g[1] + s], color=MUTED, lw=1, zorder=5)
+    end = c + v_p - (0, 0.012)  # s'arrête juste avant la pointe de v_P3
+    ax.plot([g[0], end[0]], [g[1], end[1] - 0.012], color=MUTED, lw=1.3, ls=(0, (3, 2)), zorder=5)
+    arrow(ax, end - (0, 0.014), end, color=MUTED, lw=1.3, size=11, z=5)
+    text(ax, c + v_p + (-0.025, 0.018), r"$\vec v_{P_3}$", color=RED, size=13)
+    text(ax, g + (0.028, -0.01), r"$r\,\omega_3\,\vec d_3$", color=GREEN, size=13, ha="left")
+    text(ax, (g[0] + 0.02, (g[1] + c[1] + v_p[1]) / 2 + 0.015), r"$\vec v_{P_3} - r\,\omega_3\,\vec d_3$", color=MUTED, size=11,
+         rotation=90)  # le long de son vecteur
     # Angle θ1 et rayon R
     ax.add_patch(Arc((0, 0), 0.18, 0.18, theta1=0, theta2=30, color=RED, lw=1.6, zorder=4))
     text(ax, (0.115 * np.cos(np.radians(15)), 0.115 * np.sin(np.radians(15))), r"$\theta_1$", color=RED, size=13)

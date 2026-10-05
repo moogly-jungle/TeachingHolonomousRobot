@@ -80,7 +80,7 @@ Documentation complète, avec la cinématique des roues mecanum et holonomes : [
 ## Contenu du dépôt
 
 - `holorobot/` : la bibliothèque Python des étudiants (`pyproject.toml` pour l'installer).
-- `notebooks/` : carnets JupyterLab pour les étudiants : `tableau_de_bord.ipynb` (batterie, lidar et ses segments de droite, caméra et objets reconnus par YOLO, moteurs : liste, températures, identifiants, curseurs de vitesse et de position) et `decouverte_moteurs.ipynb` (des moteurs jusqu'à la fonction de pilotage du robot).
+- `notebooks/` : carnets JupyterLab pour les étudiants : `tableau_de_bord.ipynb` (batterie, lidar et ses segments de droite, caméra et objets reconnus par YOLO, moteurs : liste, températures, identifiants, curseurs de vitesse et de position) et `locomotion_holonome.ipynb` (des moteurs jusqu'à la fonction de pilotage du robot).
 - `docs/` : sa documentation, module par module, et `memo_projet.md`, le mémo de l'enseignant (état des robots, réseau et accès, procédures, incidents connus).
 - `tests/` : tests de la bibliothèque, avec des enregistrements du robot dans `tests/data/`.
 - `setup/` : scripts de préparation des Pi.
