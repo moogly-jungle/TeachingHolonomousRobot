@@ -45,11 +45,19 @@ holorobot/      bibliothèque des étudiants : lidar.py, motors.py
 notebooks/      carnets copiés chez les étudiants : locomotion_holonome.ipynb, tableau_de_bord.ipynb
 docs/           moteurs.md, lidar.md, img/ (schémas produits par img/schemas.py), ce mémo
 tools/          battery.py, wheel_test.py, dxl_scan.py, lidar_snapshot.py, lidar_stress.py, camera_snapshot.py
-tests/          test_motors.py (22 tests, faux bus), test_lidar.py (14 tests, enregistrement réel dans tests/data)
+tests/          test_motors.py (22 tests, faux bus), test_lidar.py (14 tests, enregistrement réel dans tests/data), test_supervision.py
 setup/          install_robot_env.sh, configure_serial.sh, install_jupyter.sh, règles udev RealSense
+supervision/    outil de supervision des robots, pour l'enseignant (docs/supervision.md)
+bin/            supervision : son lanceur, qui crée l'environnement Python .venv au premier lancement
+private/        ignoré par git, jamais copié sur les robots : robots.yaml (adresses et mots de passe)
+tmp/            ignoré par git : images produites par la supervision (check-lidar, check-cam)
 ```
 
-Tests : `python3 tests/test_motors.py` et `python3 tests/test_lidar.py` (il faut numpy ; sur un robot, avec `/opt/robot/venv/bin/python`).
+Tests : `python3 tests/test_motors.py` et `python3 tests/test_lidar.py` (il faut numpy ; sur un robot, avec `/opt/robot/venv/bin/python`) ; `.venv/bin/python tests/test_supervision.py` sur le Mac ou le Dell.
+
+### 4.4 La supervision (détails dans docs/supervision.md)
+
+`bin/supervision`, sur le Mac, le Dell ou un PC Windows (`bin\supervision.cmd`) ; sans argument, il affiche l'aide. Commandes : `watch`, le tableau de bord de tous les robots (batterie, moteurs, lidar, caméra, Pi, wifi, carnets en cours) ; `list`, `status`, `robot N` ; `check-motors N` (moteurs et toutes leurs caractéristiques) ; `scan-motor N` (moteurs à toutes les vitesses du bus) ; `check-lidar N` et `check-cam N` (images du lidar et de la caméra, avec les objets que YOLO reconnaît, affichées dans une fenêtre et enregistrées dans `tmp/`) ; `set-motor-id N OLD NEW` et `set-motor-speed N ID BAUD` (changer l'identifiant ou la vitesse de bus d'un moteur) ; `spin-motors N SPEED` (faire tourner les moteurs à SPEED °/s, 2 s par défaut, puis les arrêter : robot sur sa cale ; Ctrl-C les arrête en moins d'une seconde) ; ce sont les seules commandes, avec `shutdown`, qui agissent sur les robots ; `shutdown N [N ...]` (éteindre des robots : l'outil montre d'abord les carnets en cours et demande confirmation, puis sudo demande sur chaque robot le mot de passe d'`admin`, à taper soi-même ; un robot éteint ne se rallume que sur place). Il joint chaque robot par le réseau local, par Tailscale ou par le Funnel (tunnel TLS en Python, sans openssl), le premier chemin qui marche, et y exécute une sonde. Il lit les adresses dans `private/robots.yaml`, à recopier à la main sur les autres ordinateurs. L'outil, son aide et sa documentation sont en anglais.
 
 ### 4.1 `holorobot.motors` (détails dans docs/moteurs.md)
 
@@ -128,7 +136,8 @@ Journal : `journalctl -u funnel-watchdog` (changements d'état) ; relances dans 
 - **Après un changement de réseau** (bascule de wifi), le Funnel peut rester muet quelques minutes : les relais ferment la connexion (« unexpected eof » côté client). La surveillance relance `tailscaled` et tout revient en 1 à 4 minutes.
 - **Nom public d'un nouveau robot** : Tailscale peut mettre jusqu'à une vingtaine de minutes à publier `holobotN.tail5610aa.ts.net` (la documentation dit 10). Pendant ce temps, le Funnel marche déjà si l'on passe directement par un relais : `curl --resolve holobotN.tail5610aa.ts.net:443:<ip du relais> https://holobotN.tail5610aa.ts.net/lab`. Une relance de `tailscaled` a suffi pour le robot 3, pas pour le 6, qui a fini par être publié seul.
 - **Cache DNS** : un nom demandé avant sa publication reste « inconnu » pendant 5 minutes dans le résolveur du réseau (cache négatif de `ts.net`). Les serveurs qui font foi : `dig @ns1.dnsimple.com holobotN.tail5610aa.ts.net`.
-- Les relais du Funnel ne sont pas les mêmes pour tous les robots (176.58.90.x pour les uns, 185.40.234.x pour les autres).
+- Les relais du Funnel ne sont pas les mêmes pour tous les robots (176.58.90.x pour les uns, 185.40.234.x pour les autres), et ils peuvent changer après un redémarrage (176.58.88.x et 176.58.92.x pour le robot 2, le 5 octobre).
+- **Après un démarrage**, le Funnel revient relais par relais, en 4 à 19 minutes le 5 octobre (le nom public d'un robot resté éteint plusieurs heures doit aussi être republié) : **allumer les robots au moins 20 minutes avant la séance**. Le SSH par le réseau local marche dès le démarrage.
 
 ### 6.5 Interventions courantes
 
@@ -138,15 +147,17 @@ Toutes les commandes `sudo` des robots demandent le mot de passe d'`admin`.
 
 ```
 R=du-robot-holobot1
-rsync -a --delete --exclude .git --exclude __pycache__ ./ $R:TeachingHolonomousRobot/
+rsync -a --delete --exclude .git --filter=':- .gitignore' ./ $R:TeachingHolonomousRobot/
 ssh $R
-sudo rsync -a --delete --chown=root:root --exclude .git --exclude __pycache__ ~/TeachingHolonomousRobot/ /opt/robot/src/TeachingHolonomousRobot/
+sudo rsync -a --delete --chown=root:root --exclude .git --filter=':- .gitignore' ~/TeachingHolonomousRobot/ /opt/robot/src/TeachingHolonomousRobot/
 sudo /opt/robot/venv/bin/python -m compileall -q /opt/robot/src/TeachingHolonomousRobot/holorobot
 ```
 
+  Le filtre `:- .gitignore` écarte tout ce que git ignore : `private/` (les mots de passe, que les étudiants pourraient lire sur les robots), `.venv/`, `tmp/`, `__pycache__/`. Ne jamais l'enlever.
+
 - **Remplacer un carnet chez les étudiants** : ne jamais écraser sans regarder. Comparer d'abord, garder l'ancienne copie dans `~admin/sauvegardes_carnets/<date_heure>/`, puis `sudo install -o etudiant -g etudiant -m 644 ~/TeachingHolonomousRobot/notebooks/X.ipynb /home/etudiant/notebooks/`. Après un remplacement, l'onglet ouvert dans JupyterLab doit être rechargé (*File → Reload Notebook from Disk*), sinon la sauvegarde automatique réécrit l'ancienne version.
 - **Exécuter un carnet sans navigateur** (validation, sous le compte etudiant) : le copier dans un dossier de `/tmp` appartenant à `etudiant`, puis `sudo -u etudiant env HOME=/home/etudiant /opt/robot/venv/bin/jupyter nbconvert --to notebook --execute --inplace X.ipynb`.
-- **Vérifier un robot** : `ssh $R 'hostname; uptime -s; systemctl is-active jupyterlab tailscaled funnel-watchdog; nmcli -t -f ACTIVE,SSID device wifi | grep ^yes; tailscale funnel status'`.
+- **Vérifier un robot** : depuis le Mac ou le Dell, `bin/supervision robot N` ; ou à la main, `ssh $R 'hostname; uptime -s; systemctl is-active jupyterlab tailscaled funnel-watchdog; nmcli -t -f ACTIVE,SSID device wifi | grep ^yes; tailscale funnel status'`.
 - **Redémarrer un robot à distance** sans couper sa propre connexion : `sudo systemd-run --on-active=5 /bin/systemctl reboot`. Les robots 2, 4, 5 et 6 sont revenus seuls en 1 à 2 minutes ; le robot 3 n'est pas revenu (cause inconnue au moment d'écrire).
 - **Tension de la batterie** : `/opt/robot/venv/bin/python tools/battery.py` dans la copie du dépôt.
 
@@ -187,6 +198,8 @@ Le lecteur de cartes du Dell (Realtek RTS525A) refuse certaines cartes (« card 
 - **Funnel muet après un changement de réseau** (3 octobre vers 1 h, puis 4 octobre 17 h) → relance de `tailscaled`, désormais automatique.
 - **Nom public non publié** (robots 3 et 6) → patience, relance de `tailscaled`, contrôle ajouté à la surveillance.
 - **Coupures de courant** (3 et 4 octobre) : les Pi redémarrent et tout revient seul ; une copie en cours par le réseau est à refaire.
+- **Redémarrage par sous-tension** (5 octobre) : le robot 5 a redémarré quand on a branché son lidar (`vcgencmd get_throttled` donne `0x50000`, et le noyau note « Undervoltage detected ») → alimentation 5 V à revoir (§ 10). Le même jour, le robot 1 s'est éteint à 11 h 48, et les robots 3 et 4 ont redémarré dans l'après-midi, sans cause établie : le journal des Pi n'est pas conservé d'un démarrage à l'autre.
+- **Lidar du robot 2 qui tourne sans mesurer** (5 octobre) : par moments, des tours complets dont toutes les distances valent 0 (`check-lidar` : « measured nothing ») → lidar remplacé. L'ancien est à écarter.
 - **Curseur de position qui semblait ne pas marcher** : le noyau était bloqué pendant chaque trajet et les mouvements du curseur s'accumulaient → tâche de fond qui va à la dernière position demandée.
 
 ## 9. Conventions de travail
@@ -205,7 +218,7 @@ Le lecteur de cartes du Dell (Realtek RTS525A) refuse certaines cartes (« card 
 
 Jamais dans le dépôt ni sur le site, et jamais recopiés dans un document partagé.
 
-- **Mots de passe** des comptes `etudiant` (un par robot, il ouvre aussi JupyterLab) et `admin` (le même sur les six robots) : fichier privé `mots_de_passe_robots.txt` dans `~/Programmation/Enseignement/cartes_sd/` sur le Dell. **En emporter une copie privée pour le TP.** Le mot de passe d'un robot est donné à son groupe en séance.
+- **Mots de passe** des comptes `etudiant` (un par robot, il ouvre aussi JupyterLab) et `admin` (le même sur les six robots) : fichier privé `mots_de_passe_robots.txt` dans `~/Programmation/Enseignement/cartes_sd/` sur le Dell ; sur le Mac, `private/robots.yaml` dans la copie du dépôt, qui réunit adresses et identifiants (robots, wifi, routeur) et que lit la supervision. Le dossier `private/` est ignoré par git et écarté du déploiement sur les robots. **En emporter une copie privée pour le TP.** Le mot de passe d'un robot est donné à son groupe en séance.
 - **Clés d'inscription Tailscale** : une par robot, toutes utilisées ; à révoquer dans la console si elles étaient réutilisables.
 - **Code du wifi du TP** : sur le routeur, et dans les profils NetworkManager des robots.
 
@@ -217,6 +230,10 @@ Jamais dans le dépôt ni sur le site, et jamais recopiés dans un document part
 - **Galets de MobileRobot-1** montés en O : échanger les roues avant et arrière pour un montage en X ?
 - **Distances caméra / lidar** : 9 % d'écart, test au mètre ruban.
 - **Sécurité du tailnet** : les étudiants ont un terminal sur les robots, qui sont dans le tailnet personnel d'Olivier. Un compte Tailscale dédié aux robots, ou des règles d'accès qui les isolent, serait plus sûr.
-- **Moteurs des robots 2 à 6** : à brancher (sur le robot 2, aucun moteur ne répondait le 4 octobre) ; leurs identifiants et leurs sens restent à découvrir (`find_ids()`, `tools/wheel_test.py`).
+- **Moteurs des robots 2 à 6** : le 5 octobre, un servo d'essai répond sur chacun (sur le robot 2, après le remplacement d'un composant) ; les moteurs des roues, leurs identifiants et leurs sens restent à faire (`find_ids()`, `tools/wheel_test.py`).
+- **Alimentation 5 V des Pi** : trop juste sur le robot 5 au moins (redémarrage au branchement du lidar, le 5 octobre). Une Pi 4 demande 5,1 V et 3 A, sans compter le lidar et la caméra ; l'adaptateur USB du lidar a en général un second port micro-USB pour l'alimenter à part. En attendant, brancher les périphériques avant d'allumer.
+- **Journal persistant** sur les Pi (`sudo mkdir -p /var/log/journal && sudo systemctl restart systemd-journald`), pour savoir après coup pourquoi un robot s'est éteint.
+- **Robot 1, moteur avant droit** : il a l'identifiant 15 depuis un essai du 5 octobre, au lieu de 8 ; le remettre à 8 (`bin/supervision set-motor-id 1 15 8`) ou mettre à jour le § 2.
+- **Surveillance du Funnel** : le 5 octobre, elle a relancé `tailscaled` sur le robot 3 une minute après la publication de son nom, parce que Cloudflare gardait en cache la réponse « nom inconnu ». Avant une relance pour nom absent, elle pourrait vérifier si le Funnel répond déjà par un relais.
 - **Kit des cartes** : uniquement sur le Dell ; une version sans secrets pourrait rejoindre `setup/` dans le dépôt.
 - **Modèles YOLO** : chaque carnet télécharge `yolo26n.pt` dans son dossier ; pas de dossier commun.
