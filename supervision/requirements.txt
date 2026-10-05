@@ -1,0 +1,6 @@
+# Dependencies of the supervision, installed by bin/supervision in the .venv environment of the repository
+rich>=13
+PyYAML>=6
+matplotlib>=3.7
+# A window for the images on Linux; macOS and Windows have one with matplotlib and Python
+PyQt6; sys_platform == "linux"

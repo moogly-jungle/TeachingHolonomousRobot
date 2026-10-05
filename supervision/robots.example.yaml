@@ -1,0 +1,30 @@
+# Template of private/robots.yaml, the private file that gathers the addresses and the credentials
+# of the robots. Copy it to private/robots.yaml (the private/ folder is ignored by git) and fill it in.
+# Never a real password here: the repository is public.
+
+tailscale:
+  tailnet: tail5610aa.ts.net
+  console: https://login.tailscale.com/admin/machines
+  funnel_ssh_port: 10000   # SSH inside TLS, through the Funnel
+
+ssh:
+  user: admin
+  password: "to fill in"   # admin account, the same on every robot (sudo)
+
+robots:
+  1:
+    hostname: MobileRobot-1
+    tailscale: holobot1
+    tailscale_ip: 100.x.y.z   # in the Tailscale console, or: tailscale status
+    camera_rotation: 180   # optional: 180 if the camera is mounted upside down
+    student_password: "to fill in"   # etudiant account, and JupyterLab
+  # one block per robot, numbered like the robots
+
+wifi:
+  ssid: DU_ROBOT_1
+  password: "to fill in"
+
+router:
+  address: http://192.168.9.1   # administration page, from the wifi of the course
+  admin_password: "to fill in"
+  sim: "to fill in"   # phone number of the SIM card

@@ -2,3 +2,9 @@ __pycache__/
 *.py[cod]
 .venv/
 *.egg-info/
+.DS_Store
+
+# Fichiers privés (mots de passe, adresses) : ni sur GitHub, ni sur les robots
+private/
+# Images produites par la supervision
+tmp/

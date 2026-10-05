@@ -1,0 +1,20 @@
+#!/bin/sh
+# Launches the supervision of the robots: bin/supervision --help
+#
+# The first time, creates the Python environment .venv at the root of the repository and installs
+# the dependencies of supervision/requirements.txt in it: nothing is installed anywhere else.
+set -e
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+VENV="$REPO/.venv"
+REQUIREMENTS="$REPO/supervision/requirements.txt"
+
+if [ ! -x "$VENV/bin/python" ]; then
+    echo "Creating the Python environment $VENV" >&2
+    python3 -m venv "$VENV"
+fi
+if ! cmp -s "$REQUIREMENTS" "$VENV/requirements.txt"; then  # first time, or dependencies changed
+    echo "Installing the dependencies of the supervision" >&2
+    "$VENV/bin/python" -m pip install --quiet --disable-pip-version-check -r "$REQUIREMENTS"
+    cp "$REQUIREMENTS" "$VENV/requirements.txt"
+fi
+PYTHONPATH="$REPO" exec "$VENV/bin/python" -m supervision "$@"

@@ -84,6 +84,7 @@ Documentation complète, avec la cinématique des roues mecanum et holonomes : [
 - `docs/` : sa documentation, module par module, et `memo_projet.md`, le mémo de l'enseignant (état des robots, réseau et accès, procédures, incidents connus).
 - `tests/` : tests de la bibliothèque, avec des enregistrements du robot dans `tests/data/`.
 - `setup/` : scripts de préparation des Pi.
+- `supervision/` et `bin/supervision` : l'outil de supervision des robots, pour l'enseignant (voir [`docs/supervision.md`](docs/supervision.md)).
 - `tools/` : outils de mise au point.
   - `dxl_scan.py` : cherche les moteurs Dynamixel sur le bus, sans rien faire bouger.
   - `wheel_test.py` : fait tourner chaque roue dans les deux sens et vérifie l'angle parcouru (roues en l'air).
